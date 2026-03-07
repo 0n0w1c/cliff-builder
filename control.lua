@@ -512,18 +512,49 @@ end
 -- Chain operations (flip)
 -----------------------------
 
---- Returns the exact 4-tile cardinal cliff neighbors (N/E/S/W) of `cliff`.
---- At most one cliff is taken from each direction probe.
+--- Returns whether an orientation uses the given direction on either end.
+--- @param orientation string
+--- @param direction string
+--- @return boolean
+local function orientation_has_direction(orientation, direction)
+    local from_direction, to_direction = parse_from_to(orientation)
+    return from_direction == direction or to_direction == direction
+end
+
+--- Returns whether two cliffs are actually connected to each other.
+--- They must be cardinal neighbors and each orientation must point toward the other.
+--- @param cliff LuaEntity
+--- @param neighbor LuaEntity
+--- @return boolean
+local function cliffs_are_connected(cliff, neighbor)
+    if not (cliff and cliff.valid and neighbor and neighbor.valid) then return false end
+
+    local direction = cardinal(cliff, neighbor)
+    if not direction then return false end
+
+    local opposite_direction = cardinal_reverse(direction)
+    if not opposite_direction then return false end
+
+    return orientation_has_direction(cliff.cliff_orientation, direction)
+        and orientation_has_direction(neighbor.cliff_orientation, opposite_direction)
+end
+
+--- Returns the actually connected cardinal chain neighbors (N/E/S/W) of `cliff`.
+--- Nearby cliffs that do not connect through matching orientations are ignored.
 --- @param cliff LuaEntity
 --- @return LuaEntity[] neighbors
 local function get_cardinal_chain_neighbors(cliff)
     local out = {}
+
     for _, direction in ipairs({ "north", "east", "south", "west" }) do
-        local neighbor = get_cliff_neighbors(cliff, direction)
-        if neighbor and neighbor[1] and neighbor[1].valid and neighbor[1] ~= cliff then
-            table.insert(out, neighbor[1])
+        local neighbor = get_neighbor(cliff, direction)
+        if neighbor and neighbor.valid and neighbor ~= cliff then
+            if cliffs_are_connected(cliff, neighbor) then
+                table.insert(out, neighbor)
+            end
         end
     end
+
     return out
 end
 
@@ -731,7 +762,7 @@ end
 --- Any provided blueprint orientation tag is applied to the spawned cliff.
 --- @param surface LuaSurface
 --- @param position MapPosition
---- @param force LuaForce|string
+--- @param force LuaForce|string|int
 --- @param marker_entity_name string Visible marker entity prototype name.
 --- @param tags Tags|nil Blueprint/entity tags.
 --- @return LuaEntity|nil cliff
@@ -758,7 +789,7 @@ local function try_spawn_cliff_from_marker(surface, position, force, marker_enti
     if not (cliff and cliff.valid) then return nil end
 
     if tags and tags.cf_cliff_orientation then
-        rotate_cliff(cliff, tags.cf_cliff_orientation)
+        rotate_cliff(cliff, tostring(tags.cf_cliff_orientation))
     end
 
     return cliff
@@ -1123,7 +1154,7 @@ local function on_player_setup_blueprint(event)
     if not exported_entities then return end
 
     local mapping = event.mapping:get()
-    if not mapping then return end
+    if not mapping or type(mapping) ~= "table" then return end
 
     if rewrite_exported_cliff_entities(exported_entities, mapping) then
         stack.set_blueprint_entities(exported_entities)
@@ -1134,7 +1165,6 @@ end
 -- Event hooks
 -----------------------------
 
--- IMPORTANT: only one handler per event. This single handler dispatches for cliffs + marker ghosts.
 script.on_event(defines.events.on_built_entity, on_any_built)
 script.on_event(defines.events.on_robot_built_entity, on_any_built)
 script.on_event(defines.events.script_raised_built, on_any_built)
@@ -1142,12 +1172,10 @@ script.on_event(defines.events.script_raised_revive, on_any_built)
 
 script.on_event(defines.events.on_player_setup_blueprint, on_player_setup_blueprint)
 
--- Mining / removal cleanup
 script.on_event(defines.events.on_player_mined_entity, on_cliff_removed, { { filter = "type", type = "cliff" } })
 script.on_event(defines.events.on_robot_mined_entity, on_cliff_removed, { { filter = "type", type = "cliff" } })
 script.on_event(defines.events.on_entity_died, on_cliff_removed, { { filter = "type", type = "cliff" } })
 
--- Custom inputs
 script.on_event("cliff-flip", flip_cliff_event)
 script.on_event("cliff-flip-selected", flip_cliff_selected_event)
 script.on_event("display-cliff-orientation", display_selected_cliff_orientation)
