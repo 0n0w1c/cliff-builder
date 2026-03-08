@@ -1,24 +1,13 @@
------------------------------
--- State
------------------------------
--- Only one CURRENT temporary endcap is tracked at a time.
--- When a new isolated chain is started, the previous chain's endcap becomes "permanent" (stop tracking it).
-local isolated_cliffs = {} ---@type LuaEntity[] Tracks isolated starters (may contain many).
-local free_end = nil ---@type LuaEntity|nil Current temporary endcap ONLY (the most recently spawned helper endcap).
-local free_end_owner = nil ---@type LuaEntity|nil The isolated starter cliff that owns `free_end`.
+local CARDINAL_DIRECTIONS = { "north", "east", "south", "west" }
+local VISIBLE_PREFIX = "visible-4x4-"
+local INVISIBLE_PREFIX = "invisible-4x4-"
+local MAXIMUM_CLIFF_CHAIN = 1000
 
--- Most recently started isolated chain that does NOT have an endcap yet.
--- When a new isolated chain start is placed, spawn an endcap for the PREVIOUS pending starter,
--- then mark the newly placed starter as pending.
-local pending_isolated = nil ---@type LuaEntity|nil
-local pending_isolated_dir = nil ---@type string|nil Cardinal direction ("north"|"south"|"east"|"west") used to place that pending starter's endcap.
+local isolated_cliffs = {} ---@type LuaEntity[]
 
 -----------------------------
 -- Small helpers
 -----------------------------
-
-local VISIBLE_PREFIX = "visible-4x4-"
-local INVISIBLE_PREFIX = "invisible-4x4-"
 
 --- Returns whether `str` begins with `prefix`.
 --- @param str string|nil String to test.
@@ -115,7 +104,6 @@ local function cardinal(cliff, adjacent_cliff)
     local dx = adjacent_cliff.position.x - cliff.position.x
     local dy = adjacent_cliff.position.y - cliff.position.y
 
-    -- prefer the dominant axis and require some minimum separation
     if math.abs(dx) > math.abs(dy) then
         if dx > 0 then return "east" end
         if dx < 0 then return "west" end
@@ -155,7 +143,7 @@ end
 --- @return boolean
 local function is_curve(a, b)
     if not (a and b) then return false end
-    return a and b and a ~= b and not is_opposite(a, b)
+    return a ~= b and not is_opposite(a, b)
 end
 
 --- Creates an order-independent key for a pair of strings.
@@ -200,7 +188,7 @@ end
 --- @return string to_dir
 local function parse_from_to(orientation)
     local tokens = tokenize(orientation, "-")
-    return tokens[1], tokens[3] -- KEEP ORDER
+    return tokens[1], tokens[3]
 end
 
 --- Adjusts an end-segment orientation when a new direction is attached or removed.
@@ -267,14 +255,8 @@ local function get_cliff_neighbors(cliff, direction)
     end
 
     local out = {}
-    local directions = {
-        "north",
-        "east",
-        "south",
-        "west"
-    }
 
-    for _, dir in ipairs(directions) do
+    for _, dir in ipairs(CARDINAL_DIRECTIONS) do
         for _, entity in ipairs(get_cliff_neighbors_in_direction(cliff, dir)) do
             table.insert(out, entity)
         end
@@ -299,14 +281,8 @@ end
 --- @return LuaEntity[] end_neighbors
 local function get_cardinal_end_neighbors(cliff)
     local out = {}
-    local directions = {
-        "north",
-        "east",
-        "south",
-        "west"
-    }
 
-    for _, direction in ipairs(directions) do
+    for _, direction in ipairs(CARDINAL_DIRECTIONS) do
         local neighbor = get_neighbor(cliff, direction)
         if neighbor and neighbor.valid and string.find(neighbor.cliff_orientation, "none") then
             table.insert(out, neighbor)
@@ -315,27 +291,14 @@ local function get_cardinal_end_neighbors(cliff)
     return out
 end
 
---- Removes a cliff from all state structures and tracked temporary endcaps.
---- If the cliff owns the currently tracked temporary endcap, that endcap is destroyed.
+--- Removes a cliff from isolated tracking.
 --- @param cliff LuaEntity|nil
-local function forget_cliff_everywhere(cliff)
+local function forget_isolated_cliff(cliff)
     if not cliff then return end
 
-    -- remove from isolated_cliffs list
     local found, index = helper_find_in_table(isolated_cliffs, cliff, true)
-    if found then table.remove(isolated_cliffs, index) end
-
-    -- pending
-    if pending_isolated == cliff then
-        pending_isolated = nil
-        pending_isolated_dir = nil
-    end
-
-    -- free end owner tracking
-    if free_end_owner == cliff then
-        if free_end and free_end.valid then free_end.destroy() end
-        free_end = nil
-        free_end_owner = nil
+    if found then
+        table.remove(isolated_cliffs, index)
     end
 end
 
@@ -354,7 +317,7 @@ local function chain_is_loop(start_cliff)
     local current = start_cliff
 
     local steps = 0
-    local max_cliffs = 1000
+    local max_cliffs = MAXIMUM_CLIFF_CHAIN
 
     while current and current.valid do
         steps = steps + 1
@@ -405,12 +368,11 @@ local function chain_is_loop(start_cliff)
 end
 
 -----------------------------
--- Isolated chain state
+-- Isolated cliff tracking
 -----------------------------
 
---- Handles the transition from "isolated starter" state to connected-chain state.
---- Removes the cliff from isolated tracking, clears pending state, and destroys any tracked
---- temporary endcap owned by that starter.
+--- Handles the transition from isolated-starter state to connected-chain state.
+--- Removes the cliff from isolated tracking.
 --- @param cliff LuaEntity
 --- @return boolean was_isolated True when the cliff had isolated state to clear.
 local function check_isolated(cliff)
@@ -418,20 +380,6 @@ local function check_isolated(cliff)
     if not found then return false end
 
     table.remove(isolated_cliffs, index)
-
-    if pending_isolated == cliff then
-        pending_isolated = nil
-        pending_isolated_dir = nil
-    end
-
-    if free_end_owner == cliff then
-        if free_end and free_end.valid then
-            free_end.destroy()
-        end
-        free_end = nil
-        free_end_owner = nil
-    end
-
     return true
 end
 
@@ -444,7 +392,6 @@ local function spawn_invisible_marker_for_cliff(cliff)
 
     local marker_name = invisible_marker_name_for_cliff(cliff.name)
 
-    -- prevent duplicates
     local existing = surface.find_entities_filtered {
         name = marker_name,
         position = cliff.position,
@@ -452,60 +399,12 @@ local function spawn_invisible_marker_for_cliff(cliff)
     }
     if existing and existing[1] then return end
 
-    local created = surface.create_entity {
+    surface.create_entity {
         name = marker_name,
         position = cliff.position,
         force = cliff.force,
         raise_built = false
     }
-end
-
---- Spawns a helper endcap cliff 4 tiles away from `cliff` in `direction`.
---- The spawned helper is tracked as the current temporary `free_end`.
---- @param cliff LuaEntity
---- @param direction string Cardinal direction for placement.
-local function spawn_endcap(cliff, direction)
-    if not (cliff and cliff.valid) then return end
-    local surface = cliff.surface
-
-    local position = { x = cliff.position.x, y = cliff.position.y }
-
-    if direction == "north" then
-        position.y = position.y - 4
-    elseif direction == "south" then
-        position.y = position.y + 4
-    elseif direction == "east" then
-        position.x = position.x + 4
-    elseif direction == "west" then
-        position.x = position.x - 4
-    else
-        position.y = position.y + 4
-        direction = "south"
-    end
-
-    if surface.can_place_entity and not surface.can_place_entity {
-            name = cliff.name,
-            position = position,
-            force = cliff.force
-        } then
-        return
-    end
-
-    local free_cliff = surface.create_entity {
-        name = cliff.name,
-        position = position,
-        force = cliff.force,
-        raise_built = false
-    }
-
-    if free_cliff and free_cliff.valid then
-        -- Marker for the spawned endcap
-        spawn_invisible_marker_for_cliff(free_cliff)
-
-        free_end = free_cliff
-        local back = cardinal_reverse(direction)
-        rotate_cliff(free_end, back .. "-to-none")
-    end
 end
 
 -----------------------------
@@ -546,7 +445,7 @@ end
 local function get_cardinal_chain_neighbors(cliff)
     local out = {}
 
-    for _, direction in ipairs({ "north", "east", "south", "west" }) do
+    for _, direction in ipairs(CARDINAL_DIRECTIONS) do
         local neighbor = get_neighbor(cliff, direction)
         if neighbor and neighbor.valid and neighbor ~= cliff then
             if cliffs_are_connected(cliff, neighbor) then
@@ -566,7 +465,6 @@ local function flip_chain(flip_record, cliff)
     if not (cliff and cliff.valid) then return end
     if helper_find_in_table(flip_record, cliff) then return end
 
-    -- Mark visited first to prevent cycles from re-entering
     table.insert(flip_record, cliff)
 
     local new = flip_orientation(cliff.cliff_orientation)
@@ -582,7 +480,7 @@ end
 -----------------------------
 
 -- Given the two neighbor directions (relative to this cliff), pick which corner it is.
-local CORNER_FROM_NEIGHBORS = {
+local corner_from_neighbors = {
     [make_unordered_pair_key("east", "south")] = "NW",
     [make_unordered_pair_key("south", "west")] = "NE",
     [make_unordered_pair_key("north", "west")] = "SE",
@@ -591,7 +489,7 @@ local CORNER_FROM_NEIGHBORS = {
 
 -- For each corner, you have two directed curve images (flip).
 -- Choose between them based on whether the H-neighbor touches on its TO vs FROM.
-local CURVE_VARIANTS = {
+local curve_variants = {
     NW = { horizontal_to_touch = "east-to-south", horizontal_from_touch = "south-to-east" },
     NE = { horizontal_to_touch = "west-to-south", horizontal_from_touch = "south-to-west" },
     SE = { horizontal_to_touch = "west-to-north", horizontal_from_touch = "north-to-west" },
@@ -606,7 +504,7 @@ local CURVE_VARIANTS = {
 --- @param neighbor_2 LuaEntity
 --- @return string orientation
 local function choose_curve_orientation_from_neighbors(direction_1, neighbor_1, direction_2, neighbor_2)
-    local corner = CORNER_FROM_NEIGHBORS[make_unordered_pair_key(direction_1, direction_2)]
+    local corner = corner_from_neighbors[make_unordered_pair_key(direction_1, direction_2)]
     if not corner then
         return direction_1 .. "-to-" .. direction_2
     end
@@ -626,7 +524,7 @@ local function choose_curve_orientation_from_neighbors(direction_1, neighbor_1, 
     local touch_side = cardinal_reverse(horizontal_direction)
     local horizontal_from, horizontal_to = parse_from_to(horizontal_neighbor.cliff_orientation)
 
-    local variants = CURVE_VARIANTS[corner]
+    local variants = curve_variants[corner]
     if not variants then
         return direction_1 .. "-to-" .. direction_2
     end
@@ -796,14 +694,15 @@ local function try_spawn_cliff_from_marker(surface, position, force, marker_enti
 end
 
 -----------------------------
--- Cliff placement/orientation logic (refactored to accept entity)
+-- Cliff placement/orientation logic
 -----------------------------
 
 --- Handles placement/orientation logic for a newly built live cliff.
---- When `suppress_endcaps` is true, isolated placement will not create or advance helper endcaps.
+--- When `suppress_live_placement_logic` is true, isolated placement will not enter
+--- normal live placement/orientation flow.
 --- @param cliff LuaEntity
---- @param suppress_endcaps boolean
-local function handle_cliff_built(cliff, suppress_endcaps)
+--- @param suppress_live_placement_logic boolean
+local function handle_cliff_built(cliff, suppress_live_placement_logic)
     if not (cliff and cliff.valid and cliff.type == "cliff") then return end
 
     spawn_invisible_marker_for_cliff(cliff)
@@ -812,7 +711,7 @@ local function handle_cliff_built(cliff, suppress_endcaps)
 
     -- Case: starting an isolated chain
     if next(adjacent_ends) == nil then
-        if suppress_endcaps then
+        if suppress_live_placement_logic then
             if not cliff.cliff_orientation or cliff.cliff_orientation == "none-to-none" then
                 rotate_cliff(cliff, "none-to-north")
             end
@@ -835,18 +734,10 @@ local function handle_cliff_built(cliff, suppress_endcaps)
         end
 
         rotate_cliff(cliff, "none-to-" .. set_direction)
-
-        if pending_isolated and pending_isolated.valid and pending_isolated_dir then
-            spawn_endcap(pending_isolated, pending_isolated_dir)
-            free_end_owner = pending_isolated
-        end
-
-        pending_isolated = cliff
-        pending_isolated_dir = set_direction
         return
     end
 
-    -- Case: extending from one endcap
+    -- Case: extending from one open end
     if #adjacent_ends == 1 then
         local adjacent_cliff = adjacent_ends[1]
         local cardinal_dir = cardinal(cliff, adjacent_cliff)
@@ -869,7 +760,7 @@ local function handle_cliff_built(cliff, suppress_endcaps)
         return
     end
 
-    -- Case: joining two endcaps (straight or curve)
+    -- Case: joining two open ends (straight or curve)
     if #adjacent_ends == 2 then
         local direction_1
         local direction_2
@@ -941,18 +832,15 @@ local function on_any_built(event)
     local entity = event.entity
     if not (entity and entity.valid) then return end
 
-    -- normal cliff
     if entity.type == "cliff" then
         handle_cliff_built(entity, false)
         return
     end
 
-    -- ignore visible ghost; conversion happens when it becomes real
     if entity.type == "entity-ghost" and starts_with(entity.ghost_name, VISIBLE_PREFIX) then
         return
     end
 
-    -- robots built the real visible marker
     if starts_with(entity.name, VISIBLE_PREFIX) then
         local surface = entity.surface
         local position = entity.position
@@ -965,7 +853,6 @@ local function on_any_built(event)
             return
         end
 
-        -- Remove marker first so it can’t block placement
         entity.destroy()
 
         clear_cliff_tile(surface, position)
@@ -999,7 +886,7 @@ local function on_cliff_removed(event)
         for _, neighbor in ipairs(neighbors) do
             if neighbor and neighbor.type == "cliff" and string.find(neighbor.cliff_orientation, "none") then
                 remove_invisible_marker_for_cliff(neighbor)
-                forget_cliff_everywhere(neighbor)
+                forget_isolated_cliff(neighbor)
 
                 if player then
                     player.insert { name = neighbor.name, count = 1 }
@@ -1008,9 +895,8 @@ local function on_cliff_removed(event)
         end
     end
 
-    -- Always remove marker for the cliff that was explicitly removed
     remove_invisible_marker_for_cliff(cliff)
-    forget_cliff_everywhere(cliff)
+    forget_isolated_cliff(cliff)
 end
 
 -----------------------------

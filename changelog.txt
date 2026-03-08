@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.0.3
+Date: 07.03.2026
+  Bugfixes:
+    - Refactored: removed code complexity related to isolated cliffs
+  Changes:
+    - No longer fixes isolated cliffs, proper cliffs should be placed >= 2, single are incomplete
+---------------------------------------------------------------------------------------------------
 Version: 0.0.2
 Date: 06.03.2026
   Bugfixes:
