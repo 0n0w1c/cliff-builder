@@ -8,6 +8,7 @@ Craft, place, mine, and blueprint cliffs
 *Shift + Left-mouse-click* Display the selected cliff's orientation  
 
 #### Notes:
+* Proper cliffs consist of a minimum of two adjacent cliffs, a single cliff is incomplete.  
 * When using hotkeys to flip the cliff perspective, there is a "sweet spot" for the mouse cursor.  
 * When placing blueprints, you are responsible for proper spacing to other cliffs.  
 * Using robots to mine cliffs will result in a small loss of cliff items due to game engine mechanics.  
