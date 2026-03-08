@@ -291,17 +291,6 @@ local function get_cardinal_end_neighbors(cliff)
     return out
 end
 
---- Removes a cliff from isolated tracking.
---- @param cliff LuaEntity|nil
-local function forget_isolated_cliff(cliff)
-    if not cliff then return end
-
-    local found, index = helper_find_in_table(isolated_cliffs, cliff, true)
-    if found then
-        table.remove(isolated_cliffs, index)
-    end
-end
-
 -----------------------------
 -- Chain analysis
 -----------------------------
@@ -371,11 +360,12 @@ end
 -- Isolated cliff tracking
 -----------------------------
 
---- Handles the transition from isolated-starter state to connected-chain state.
---- Removes the cliff from isolated tracking.
---- @param cliff LuaEntity
---- @return boolean was_isolated True when the cliff had isolated state to clear.
-local function check_isolated(cliff)
+--- Removes a cliff from isolated tracking.
+--- @param cliff LuaEntity|nil
+--- @return boolean was_isolated True when the cliff was present in isolated tracking.
+local function remove_isolated_cliff(cliff)
+    if not cliff then return false end
+
     local found, index = helper_find_in_table(isolated_cliffs, cliff, true)
     if not found then return false end
 
@@ -697,106 +687,113 @@ end
 -- Cliff placement/orientation logic
 -----------------------------
 
---- Handles placement/orientation logic for a newly built live cliff.
---- When `suppress_live_placement_logic` is true, isolated placement will not enter
---- normal live placement/orientation flow.
+--- Handles an isolated newly built live cliff.
 --- @param cliff LuaEntity
---- @param suppress_live_placement_logic boolean
-local function handle_cliff_built(cliff, suppress_live_placement_logic)
+local function handle_isolated_cliff_built(cliff)
+    table.insert(isolated_cliffs, cliff)
+
+    local set_direction
+    if #get_cliff_neighbors(cliff, "north") > 0 then
+        set_direction = "east"
+    elseif #get_cliff_neighbors(cliff, "east") > 0 then
+        set_direction = "south"
+    elseif #get_cliff_neighbors(cliff, "south") > 0 then
+        set_direction = "west"
+    elseif #get_cliff_neighbors(cliff, "west") > 0 then
+        set_direction = "north"
+    else
+        set_direction = "north"
+    end
+
+    rotate_cliff(cliff, "none-to-" .. set_direction)
+end
+
+--- Handles a cliff extending from one open end.
+--- @param cliff LuaEntity
+--- @param adjacent_cliff LuaEntity
+local function handle_cliff_extension_built(cliff, adjacent_cliff)
+    local cardinal_dir = cardinal(cliff, adjacent_cliff)
+    if not cardinal_dir then return end
+
+    local inv_cardinal = cardinal_reverse(cardinal_dir)
+    if not inv_cardinal then return end
+
+    local adj_orientation = adjacent_cliff.cliff_orientation
+    local adj_orientation_new = swap_orientation(remove_isolated_cliff(adjacent_cliff), adj_orientation, inv_cardinal)
+    rotate_cliff(adjacent_cliff, adj_orientation_new)
+
+    -- Use the neighbor's pre-rotation orientation to determine which side was open,
+    -- so the newly placed cliff inherits the matching end-segment direction.
+    local split_string = tokenize(adj_orientation, "-")
+    local orientation_new
+    if split_string[1] == "none" then
+        orientation_new = "none-to-" .. cardinal_dir
+    elseif split_string[3] == "none" then
+        orientation_new = cardinal_dir .. "-to-none"
+    end
+
+    rotate_cliff(cliff, orientation_new)
+end
+
+--- Handles a cliff joining two open ends.
+--- @param cliff LuaEntity
+--- @param adjacent_ends LuaEntity[]
+local function handle_cliff_join_built(cliff, adjacent_ends)
+    local direction_1
+    local direction_2
+
+    for index, adjacent_cliff in ipairs(adjacent_ends) do
+        local cardinal_dir = cardinal(cliff, adjacent_cliff)
+        if not cardinal_dir then return end
+
+        local inv_cardinal = cardinal_reverse(cardinal_dir)
+        if not inv_cardinal then return end
+
+        local adj_orientation = adjacent_cliff.cliff_orientation
+        local adj_orientation_new = swap_orientation(remove_isolated_cliff(adjacent_cliff), adj_orientation, inv_cardinal)
+
+        if index == 1 then
+            direction_1 = cardinal_dir
+        elseif index == 2 then
+            direction_2 = cardinal_dir
+        end
+
+        rotate_cliff(adjacent_cliff, adj_orientation_new)
+    end
+
+    if adjacent_ends[1].cliff_orientation == adjacent_ends[2].cliff_orientation then
+        rotate_cliff(cliff, adjacent_ends[1].cliff_orientation)
+    else
+        rotate_cliff(cliff, direction_1 .. "-to-" .. direction_2)
+    end
+
+    if chain_is_loop(cliff) then
+        local target_orientation = choose_loop_joint_orientation(cliff, direction_1, direction_2)
+        rotate_cliff(cliff, target_orientation)
+    else
+        ensure_chain_continuity(cliff, direction_1, direction_2)
+    end
+end
+
+--- Dispatcher for placement/orientation logic for a newly built live cliff.
+--- @param cliff LuaEntity
+local function handle_cliff_built(cliff)
     if not (cliff and cliff.valid and cliff.type == "cliff") then return end
 
     spawn_invisible_marker_for_cliff(cliff)
 
     local adjacent_ends = get_cardinal_end_neighbors(cliff)
 
-    -- Case: starting an isolated chain
-    if next(adjacent_ends) == nil then
-        if suppress_live_placement_logic then
-            if not cliff.cliff_orientation or cliff.cliff_orientation == "none-to-none" then
-                rotate_cliff(cliff, "none-to-north")
-            end
-            return
-        end
-
-        table.insert(isolated_cliffs, cliff)
-
-        local set_direction
-        if #get_cliff_neighbors(cliff, "north") > 0 then
-            set_direction = "east"
-        elseif #get_cliff_neighbors(cliff, "east") > 0 then
-            set_direction = "south"
-        elseif #get_cliff_neighbors(cliff, "south") > 0 then
-            set_direction = "west"
-        elseif #get_cliff_neighbors(cliff, "west") > 0 then
-            set_direction = "north"
-        else
-            set_direction = "north"
-        end
-
-        rotate_cliff(cliff, "none-to-" .. set_direction)
-        return
+    if #adjacent_ends == 0 then
+        return handle_isolated_cliff_built(cliff)
     end
 
-    -- Case: extending from one open end
     if #adjacent_ends == 1 then
-        local adjacent_cliff = adjacent_ends[1]
-        local cardinal_dir = cardinal(cliff, adjacent_cliff)
-        if not cardinal_dir then return end
-        local inv_cardinal = cardinal_reverse(cardinal_dir)
-        if not inv_cardinal then return end
-        local adj_orientation = adjacent_cliff.cliff_orientation
-
-        local adj_orientation_new = swap_orientation(check_isolated(adjacent_cliff), adj_orientation, inv_cardinal)
-        rotate_cliff(adjacent_cliff, adj_orientation_new)
-
-        local split_string = tokenize(adj_orientation, "-")
-        local orientation_new
-        if split_string[1] == "none" then
-            orientation_new = "none-to-" .. cardinal_dir
-        elseif split_string[3] == "none" then
-            orientation_new = cardinal_dir .. "-to-none"
-        end
-        rotate_cliff(cliff, orientation_new)
-        return
+        return handle_cliff_extension_built(cliff, adjacent_ends[1])
     end
 
-    -- Case: joining two open ends (straight or curve)
     if #adjacent_ends == 2 then
-        local direction_1
-        local direction_2
-
-        for index, adjacent_cliff in ipairs(adjacent_ends) do
-            local cardinal_dir = cardinal(cliff, adjacent_cliff)
-            if not cardinal_dir then return end
-            local inv_cardinal = cardinal_reverse(cardinal_dir)
-            if not inv_cardinal then return end
-            local adj_orientation = adjacent_cliff.cliff_orientation
-
-            local adj_orientation_new = swap_orientation(check_isolated(adjacent_cliff), adj_orientation, inv_cardinal)
-
-            if index == 1 then
-                direction_1 = cardinal_dir
-            elseif index == 2 then
-                direction_2 = cardinal_dir
-            end
-
-            rotate_cliff(adjacent_cliff, adj_orientation_new)
-        end
-
-        if adjacent_ends[1].cliff_orientation == adjacent_ends[2].cliff_orientation then
-            rotate_cliff(cliff, adjacent_ends[1].cliff_orientation)
-        else
-            rotate_cliff(cliff, direction_1 .. "-to-" .. direction_2)
-        end
-
-        if chain_is_loop(cliff) then
-            local target_orientation = choose_loop_joint_orientation(cliff, direction_1, direction_2)
-            rotate_cliff(cliff, target_orientation)
-        else
-            ensure_chain_continuity(cliff, direction_1, direction_2)
-        end
-
-        return
+        return handle_cliff_join_built(cliff, adjacent_ends)
     end
 end
 
@@ -833,7 +830,7 @@ local function on_any_built(event)
     if not (entity and entity.valid) then return end
 
     if entity.type == "cliff" then
-        handle_cliff_built(entity, false)
+        handle_cliff_built(entity)
         return
     end
 
@@ -860,8 +857,8 @@ local function on_any_built(event)
         local spawned = try_spawn_cliff_from_marker(surface, position, force, marker_name, tags)
         if spawned then
             -- For blueprint/copy-paste restoration, the saved tag already contains
-            -- the correct final cliff orientation. Do not run normal placement logic
-            -- against a partially constructed robot-built chain.
+            -- the correct final cliff orientation. Do not run normal live placement
+            -- logic against a partially restored chain.
             spawn_invisible_marker_for_cliff(spawned)
         end
         return
@@ -886,7 +883,7 @@ local function on_cliff_removed(event)
         for _, neighbor in ipairs(neighbors) do
             if neighbor and neighbor.type == "cliff" and string.find(neighbor.cliff_orientation, "none") then
                 remove_invisible_marker_for_cliff(neighbor)
-                forget_isolated_cliff(neighbor)
+                remove_isolated_cliff(neighbor)
 
                 if player then
                     player.insert { name = neighbor.name, count = 1 }
@@ -896,7 +893,7 @@ local function on_cliff_removed(event)
     end
 
     remove_invisible_marker_for_cliff(cliff)
-    forget_isolated_cliff(cliff)
+    remove_isolated_cliff(cliff)
 end
 
 -----------------------------
@@ -972,6 +969,61 @@ local function find_cliff_at(surface, position)
     return nil
 end
 
+--- Builds a lookup from blueprint entity_number to exported_entities index.
+--- @param exported_entities BlueprintEntity[]
+--- @return table<any, integer> exported_by_number
+local function build_exported_entity_index(exported_entities)
+    local exported_by_number = {}
+
+    for i, exported_entity in ipairs(exported_entities) do
+        if exported_entity.entity_number then
+            exported_by_number[exported_entity.entity_number] = i
+        end
+    end
+
+    return exported_by_number
+end
+
+--- Rewrites one exported invisible-marker entity into its visible marker form
+--- and updates cliff-orientation tags from the current world state.
+--- @param exported_entity BlueprintEntity
+--- @param world_entity LuaEntity
+--- @return boolean changed
+local function rewrite_exported_cliff_entity(exported_entity, world_entity)
+    local changed = false
+    local cliff = find_cliff_at(world_entity.surface, world_entity.position)
+
+    local visible_name = visible_marker_name_from_invisible(world_entity.name)
+    if visible_name and exported_entity.name ~= visible_name then
+        exported_entity.name = visible_name
+        changed = true
+    end
+
+    exported_entity.tags = exported_entity.tags or {}
+
+    if cliff then
+        if exported_entity.tags.cf_cliff_orientation ~= cliff.cliff_orientation then
+            exported_entity.tags.cf_cliff_orientation = cliff.cliff_orientation
+            changed = true
+        end
+        if exported_entity.tags.cf_missing_cliff ~= nil then
+            exported_entity.tags.cf_missing_cliff = nil
+            changed = true
+        end
+    else
+        if exported_entity.tags.cf_missing_cliff ~= true then
+            exported_entity.tags.cf_missing_cliff = true
+            changed = true
+        end
+        if exported_entity.tags.cf_cliff_orientation ~= nil then
+            exported_entity.tags.cf_cliff_orientation = nil
+            changed = true
+        end
+    end
+
+    return changed
+end
+
 --- Rewrites exported marker entities so invisible markers become visible markers
 --- and carry cliff-orientation tags for blueprint/copy-paste export.
 --- @param exported_entities BlueprintEntity[]
@@ -980,13 +1032,7 @@ end
 local function rewrite_exported_cliff_entities(exported_entities, mapping)
     if not (exported_entities and mapping) then return false end
 
-    local exported_by_number = {}
-    for i, exported_entity in ipairs(exported_entities) do
-        if exported_entity.entity_number then
-            exported_by_number[exported_entity.entity_number] = i
-        end
-    end
-
+    local exported_by_number = build_exported_entity_index(exported_entities)
     local changed = false
 
     for entity_number, world_entity in pairs(mapping) do
@@ -994,25 +1040,9 @@ local function rewrite_exported_cliff_entities(exported_entities, mapping)
             local index = exported_by_number[entity_number]
             if index then
                 local exported_entity = exported_entities[index]
-                local cliff = find_cliff_at(world_entity.surface, world_entity.position)
-
-                local visible_name = visible_marker_name_from_invisible(world_entity.name)
-                if visible_name and exported_entity.name ~= visible_name then
-                    exported_entity.name = visible_name
+                if rewrite_exported_cliff_entity(exported_entity, world_entity) then
                     changed = true
                 end
-
-                exported_entity.tags = exported_entity.tags or {}
-
-                if cliff then
-                    exported_entity.tags.cf_cliff_orientation = cliff.cliff_orientation
-                    exported_entity.tags.cf_missing_cliff = nil
-                else
-                    exported_entity.tags.cf_missing_cliff = true
-                    exported_entity.tags.cf_cliff_orientation = nil
-                end
-
-                changed = true
             end
         end
     end
