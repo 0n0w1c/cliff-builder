@@ -13,7 +13,7 @@ Craft, place, mine, and blueprint cliffs
 * When placing blueprints, you are responsible for proper spacing to other cliffs.  
 * Using robots to mine cliffs will result in a small loss of cliff items due to game engine mechanics.  
 * Rotating blueprints is not supported.  
-* Undo/Redo is not supported.  
+* Undo/Redo of blueprints is not supported.  
 
 #### Supported mods:
 [EverythingOnNauvis](https://mods.factorio.com/mod/EverythingOnNauvis)  
