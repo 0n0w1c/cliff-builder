@@ -1,6 +1,6 @@
 {
     "name": "cliff-builder",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "title": "Cliff Builder",
     "author": "0n0w1c",
     "factorio_version": "2.0",
@@ -8,6 +8,7 @@
     "dependencies": [
         "base >= 2.0",
         "? space-age",
-        "? EverythingOnNauvis"
+        "? EverythingOnNauvis",
+        "? EON-FulgoraDiscovered"
     ]
 }

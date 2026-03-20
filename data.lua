@@ -1,6 +1,6 @@
-local util = require("util")
+require("constants")
 
-local mod_prefix = "cf-"
+local util = require("util")
 
 data:extend({
     {
@@ -13,7 +13,7 @@ local cliff_definitions = {
     {
         name = "cliff",
         ingredient = "stone",
-        surface_conditions = { { property = "gravity", min = 10, max = 10 } },
+        surface_conditions = mods["space-age"] and surface_conditions["nauvis"] or nil,
     }
 }
 
@@ -22,21 +22,21 @@ if mods["space-age"] then
         {
             name = "cliff-fulgora",
             ingredient = "holmium-ore",
-            surface_conditions = { { property = "gravity", min = 8, max = 8 } },
+            surface_conditions = surface_conditions["fulgora"],
         })
 
     table.insert(cliff_definitions,
         {
             name = "cliff-gleba",
             ingredient = "spoilage",
-            surface_conditions = { { property = "gravity", min = 20, max = 20 } },
+            surface_conditions = surface_conditions["gleba"],
         })
 
     table.insert(cliff_definitions,
         {
             name = "cliff-vulcanus",
             ingredient = "calcite",
-            surface_conditions = { { property = "gravity", min = 40, max = 40 } },
+            surface_conditions = surface_conditions["vulcanus"],
         })
 end
 
@@ -46,25 +46,13 @@ for _, definition in ipairs(cliff_definitions) do
     local cliff = definition.name
     local name = mod_prefix .. cliff
 
-    local hidden = false
-    if mods["EverythingOnNauvis"] and cliff == "cliff-fulgora" then
-        hidden = true
-    end
-
-    local surface_conditions = nil
-    if mods["space-age"] and not mods["EverythingOnNauvis"] then
-        surface_conditions = definition.surface_conditions
-    end
-
-    local entity
-    entity = table.deepcopy(data.raw["cliff"][cliff])
+    local entity = table.deepcopy(data.raw["cliff"][cliff])
     entity.name = name
-
-    entity.hidden_in_factoriopedia = hidden
+    entity.hidden_in_factoriopedia = false
     entity.minable = { mining_time = 1.0, result = name, count = 1 }
     entity.selectable_in_game = true
     entity.placeable_by = { item = name, count = 1 }
-    entity.surface_conditions = surface_conditions
+    entity.surface_conditions = definition.surface_conditions
 
     entity.flags = {
         "player-creation",
@@ -95,7 +83,7 @@ for _, definition in ipairs(cliff_definitions) do
         {
             type = "item",
             name = name,
-            hidden = hidden,
+            hidden = false,
             icon = icon,
             icon_size = 64,
             stack_size = 50,
@@ -112,11 +100,11 @@ for _, definition in ipairs(cliff_definitions) do
         {
             type = "recipe",
             name = name,
-            hidden = hidden,
+            hidden = false,
             enabled = false,
             energy_required = 1,
             category = "crafting",
-            surface_conditions = surface_conditions,
+            surface_conditions = definition.surface_conditions,
             ingredients = {
                 { type = "item", name = "landfill",            amount = 4 },
                 { type = "item", name = definition.ingredient, amount = 10 }
@@ -127,7 +115,7 @@ for _, definition in ipairs(cliff_definitions) do
         }
     })
 
-    if technologies["landfill"] and technologies["landfill"].effects and (not hidden) then
+    if technologies["landfill"] and technologies["landfill"].effects then
         table.insert(technologies["landfill"].effects, { type = "unlock-recipe", recipe = name })
     end
 

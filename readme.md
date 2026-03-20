@@ -16,4 +16,5 @@ Craft, place, mine, and blueprint cliffs
 * Undo/Redo is not supported.  
 
 #### Supported mods:
-[EverythingOnNauvis](https://mods.factorio.com/mod/EverythingOnNauvis)  
+[Everything On Nauvis](https://mods.factorio.com/mod/EverythingOnNauvis)  
+[Everything On Nauvis - Fulgora Discovered!](https://mods.factorio.com/mod/EON-FulgoraDiscovered)  

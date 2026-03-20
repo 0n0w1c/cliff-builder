@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.0.6
+Date: 20.03.2026
+  Bugfixes:
+    - Refactored to better handle mod compatibility
+  Changes:
+    - Added support for Everything On Nauvis - Fulgora Discovered!
+---------------------------------------------------------------------------------------------------
 Version: 0.0.5
 Date: 17.03.2026
   Bugfixes:
