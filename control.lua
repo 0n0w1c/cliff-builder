@@ -1,6 +1,7 @@
 local CARDINAL_DIRECTIONS = { "north", "east", "south", "west" }
 local VISIBLE_PREFIX = "visible-4x4-"
 local INVISIBLE_PREFIX = "invisible-4x4-"
+local CLIFF_PREFIX = "cf-"
 local MAXIMUM_CLIFF_CHAIN = 1000
 
 local isolated_cliffs = {} ---@type LuaEntity[]
@@ -15,6 +16,38 @@ local isolated_cliffs = {} ---@type LuaEntity[]
 --- @return boolean
 local function starts_with(str, prefix)
     return type(str) == "string" and string.sub(str, 1, #prefix) == prefix
+end
+
+--- Returns whether a cliff prototype name belongs to this mod.
+--- Supported cliff-builder cliffs are named with the `cf-` prefix.
+--- @param cliff_name string|nil
+--- @return boolean
+local function is_supported_cliff_name(cliff_name)
+    return starts_with(cliff_name, CLIFF_PREFIX)
+end
+
+--- Returns whether an entity is a cliff managed by this mod.
+--- @param entity LuaEntity|nil
+--- @return boolean
+local function is_supported_cliff_entity(entity)
+    if not (entity and entity.valid) then return false end
+    return entity.type == "cliff" and is_supported_cliff_name(entity.name)
+end
+
+--- Returns whether an entity is a visible marker managed by this mod.
+--- @param entity LuaEntity|nil
+--- @return boolean
+local function is_supported_visible_marker_entity(entity)
+    if not (entity and entity.valid) then return false end
+    return starts_with(entity.name, VISIBLE_PREFIX .. CLIFF_PREFIX)
+end
+
+--- Returns whether an entity is an invisible marker managed by this mod.
+--- @param entity LuaEntity|nil
+--- @return boolean
+local function is_supported_invisible_marker_entity(entity)
+    if not (entity and entity.valid) then return false end
+    return starts_with(entity.name, INVISIBLE_PREFIX .. CLIFF_PREFIX)
 end
 
 --- Converts a visible marker prototype name into its cliff prototype name.
@@ -236,11 +269,20 @@ local function get_cliff_neighbors_in_direction(cliff, direction)
         return {}
     end
 
-    return surface.find_entities_filtered {
+    local found = surface.find_entities_filtered {
         type = "cliff",
         position = position,
         radius = 1
     } or {}
+
+    local neighbors = {}
+    for _, entity in ipairs(found) do
+        if is_supported_cliff_entity(entity) then
+            table.insert(neighbors, entity)
+        end
+    end
+
+    return neighbors
 end
 
 --- Returns neighboring cliffs adjacent to `cliff`.
@@ -469,7 +511,6 @@ end
 -- Loop joint orientation (curve/straight)
 -----------------------------
 
--- Given the two neighbor directions (relative to this cliff), pick which corner it is.
 local corner_from_neighbors = {
     [make_unordered_pair_key("east", "south")] = "NW",
     [make_unordered_pair_key("south", "west")] = "NE",
@@ -477,8 +518,6 @@ local corner_from_neighbors = {
     [make_unordered_pair_key("east", "north")] = "SW",
 }
 
--- For each corner, you have two directed curve images (flip).
--- Choose between them based on whether the H-neighbor touches on its TO vs FROM.
 local curve_variants = {
     NW = { horizontal_to_touch = "east-to-south", horizontal_from_touch = "south-to-east" },
     NE = { horizontal_to_touch = "west-to-south", horizontal_from_touch = "south-to-west" },
@@ -536,10 +575,6 @@ end
 --- @param neighbor_2 LuaEntity
 --- @return string orientation
 local function choose_straight_orientation_from_neighbors(direction_1, neighbor_1, direction_2, neighbor_2)
-    --- Returns whether the neighbor touches this cliff via its FROM or TO side.
-    --- @param neighbor LuaEntity
-    --- @param touch_side string
-    --- @return string|nil
     local function touch_end(neighbor, touch_side)
         if not touch_side then return nil end
 
@@ -556,10 +591,6 @@ local function choose_straight_orientation_from_neighbors(direction_1, neighbor_
     local end_type_1 = touch_end(neighbor_1, touch_side_1)
     local end_type_2 = touch_end(neighbor_2, touch_side_2)
 
-    --- Scores how many directed touches favor a candidate from->to orientation.
-    --- @param from_direction string
-    --- @param to_direction string
-    --- @return integer
     local function touches(from_direction, to_direction)
         local touch = 0
         if end_type_1 == "TO" and from_direction == direction_1 then touch = touch + 1 end
@@ -722,8 +753,6 @@ local function handle_cliff_extension_built(cliff, adjacent_cliff)
     local adj_orientation_new = swap_orientation(remove_isolated_cliff(adjacent_cliff), adj_orientation, inv_cardinal)
     rotate_cliff(adjacent_cliff, adj_orientation_new)
 
-    -- Use the neighbor's pre-rotation orientation to determine which side was open,
-    -- so the newly placed cliff inherits the matching end-segment direction.
     local split_string = tokenize(adj_orientation, "-")
     local orientation_new
     if split_string[1] == "none" then
@@ -778,7 +807,7 @@ end
 --- Dispatcher for placement/orientation logic for a newly built live cliff.
 --- @param cliff LuaEntity
 local function handle_cliff_built(cliff)
-    if not (cliff and cliff.valid and cliff.type == "cliff") then return end
+    if not is_supported_cliff_entity(cliff) then return end
 
     spawn_invisible_marker_for_cliff(cliff)
 
@@ -808,7 +837,7 @@ local function clear_cliff_tile(surface, position)
     }
 
     for _, entity in ipairs(entities) do
-        if entity.valid and (entity.type == "cliff" or starts_with(entity.name, INVISIBLE_PREFIX)) then
+        if entity.valid and (is_supported_cliff_entity(entity) or is_supported_invisible_marker_entity(entity)) then
             entity.destroy()
         end
     end
@@ -829,16 +858,16 @@ local function on_any_built(event)
     local entity = event.entity
     if not (entity and entity.valid) then return end
 
-    if entity.type == "cliff" then
+    if is_supported_cliff_entity(entity) then
         handle_cliff_built(entity)
         return
     end
 
-    if entity.type == "entity-ghost" and starts_with(entity.ghost_name, VISIBLE_PREFIX) then
+    if entity.type == "entity-ghost" and starts_with(entity.ghost_name, VISIBLE_PREFIX .. CLIFF_PREFIX) then
         return
     end
 
-    if starts_with(entity.name, VISIBLE_PREFIX) then
+    if is_supported_visible_marker_entity(entity) then
         local surface = entity.surface
         local position = entity.position
         local force = entity.force
@@ -856,9 +885,6 @@ local function on_any_built(event)
 
         local spawned = try_spawn_cliff_from_marker(surface, position, force, marker_name, tags)
         if spawned then
-            -- For blueprint/copy-paste restoration, the saved tag already contains
-            -- the correct final cliff orientation. Do not run normal live placement
-            -- logic against a partially restored chain.
             spawn_invisible_marker_for_cliff(spawned)
         end
         return
@@ -872,16 +898,14 @@ end
 ---| EventData.on_entity_died
 local function on_cliff_removed(event)
     local cliff = event.entity
-    if not (cliff and cliff.valid and cliff.type == "cliff") then return end
+    if not is_supported_cliff_entity(cliff) then return end
 
     local player = event.player_index and game.get_player(event.player_index) or nil
     local neighbors = get_cliff_neighbors(cliff)
 
-    -- Handle the engine silently deleting the newly-isolated neighbor
-    -- The neighbor is invalid at this point
     if neighbors then
         for _, neighbor in ipairs(neighbors) do
-            if neighbor and neighbor.type == "cliff" and string.find(neighbor.cliff_orientation, "none") then
+            if is_supported_cliff_entity(neighbor) and string.find(neighbor.cliff_orientation, "none") then
                 remove_invisible_marker_for_cliff(neighbor)
                 remove_isolated_cliff(neighbor)
 
@@ -909,10 +933,13 @@ local function flip_cliff_event(event)
             local player = game.get_player(event.player_index)
             if not player then return end
             local surface = player.surface
-            local cliff = surface.find_entities_filtered({ type = "cliff", position = event.cursor_position, radius = 1 })
-            if cliff[1] then
-                local flip_record = {}
-                flip_chain(flip_record, cliff[1])
+            local cliffs = surface.find_entities_filtered({ type = "cliff", position = event.cursor_position, radius = 1 })
+            for _, cliff in ipairs(cliffs) do
+                if is_supported_cliff_entity(cliff) then
+                    local flip_record = {}
+                    flip_chain(flip_record, cliff)
+                    break
+                end
             end
         end
     end
@@ -925,7 +952,7 @@ local function flip_cliff_selected_event(event)
     if not player then return end
 
     local entity = player.selected
-    if entity and entity.valid and entity.type == "cliff" then
+    if is_supported_cliff_entity(entity) then
         local cliff = entity
         local new = flip_orientation(cliff.cliff_orientation)
         rotate_cliff(cliff, new)
@@ -939,7 +966,7 @@ local function display_selected_cliff_orientation(event)
     if not player then return end
 
     local entity = player.selected
-    if entity and entity.valid and entity.type == "cliff" then
+    if is_supported_cliff_entity(entity) then
         player.create_local_flying_text {
             text = entity.cliff_orientation,
             position = entity.position
@@ -962,7 +989,7 @@ local function find_cliff_at(surface, position)
         radius = 1
     }
     for _, cliff in ipairs(cliffs) do
-        if cliff and cliff.valid and cliff.type == "cliff" then
+        if is_supported_cliff_entity(cliff) then
             return cliff
         end
     end
