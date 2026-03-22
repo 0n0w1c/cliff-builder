@@ -1,7 +1,8 @@
+require("constants")
+
 local CARDINAL_DIRECTIONS = { "north", "east", "south", "west" }
 local VISIBLE_PREFIX = "visible-4x4-"
 local INVISIBLE_PREFIX = "invisible-4x4-"
-local CLIFF_PREFIX = "cf-"
 local MAXIMUM_CLIFF_CHAIN = 1000
 
 local isolated_cliffs = {} ---@type LuaEntity[]
@@ -19,7 +20,7 @@ local function starts_with(str, prefix)
 end
 
 --- Returns whether a cliff prototype name belongs to this mod.
---- Supported cliff-builder cliffs are named with the `cf-` prefix.
+--- Supported cliff-builder cliffs are named with the `cb-` prefix.
 --- @param cliff_name string|nil
 --- @return boolean
 local function is_supported_cliff_name(cliff_name)
@@ -51,7 +52,7 @@ local function is_supported_invisible_marker_entity(entity)
 end
 
 --- Converts a visible marker prototype name into its cliff prototype name.
---- Example: `"visible-4x4-cf-cliff"` -> `"cf-cliff"`.
+--- Example: `"visible-4x4-cb-cliff"` -> `"cb-cliff"`.
 --- @param marker_name string
 --- @return string|nil cliff_entity_name
 local function cliff_name_from_visible_marker(marker_name)
@@ -60,7 +61,7 @@ local function cliff_name_from_visible_marker(marker_name)
 end
 
 --- Converts a cliff prototype name into its invisible marker prototype name.
---- Example: `"cf-cliff"` -> `"invisible-4x4-cf-cliff"`.
+--- Example: `"cb-cliff"` -> `"invisible-4x4-cb-cliff"`.
 --- @param cliff_entity_name string
 --- @return string marker_entity_name
 local function invisible_marker_name_for_cliff(cliff_entity_name)
@@ -68,7 +69,7 @@ local function invisible_marker_name_for_cliff(cliff_entity_name)
 end
 
 --- Converts an invisible marker prototype name into its visible marker prototype name.
---- Example: `"invisible-4x4-cf-cliff"` -> `"visible-4x4-cf-cliff"`.
+--- Example: `"invisible-4x4-cb-cliff"` -> `"visible-4x4-cb-cliff"`.
 --- @param marker_name string
 --- @return string|nil visible_marker_name
 local function visible_marker_name_from_invisible(marker_name)
@@ -707,8 +708,8 @@ local function try_spawn_cliff_from_marker(surface, position, force, marker_enti
     }
     if not (cliff and cliff.valid) then return nil end
 
-    if tags and tags.cf_cliff_orientation then
-        rotate_cliff(cliff, tostring(tags.cf_cliff_orientation))
+    if tags and tags.cb_cliff_orientation then
+        rotate_cliff(cliff, tostring(tags.cb_cliff_orientation))
     end
 
     return cliff
@@ -874,7 +875,7 @@ local function on_any_built(event)
         local marker_name = entity.name
 
         local tags = event.tags
-        if tags and tags.cf_missing_cliff then
+        if tags and tags.cb_missing_cliff then
             entity.destroy()
             return
         end
@@ -1029,21 +1030,21 @@ local function rewrite_exported_cliff_entity(exported_entity, world_entity)
     exported_entity.tags = exported_entity.tags or {}
 
     if cliff then
-        if exported_entity.tags.cf_cliff_orientation ~= cliff.cliff_orientation then
-            exported_entity.tags.cf_cliff_orientation = cliff.cliff_orientation
+        if exported_entity.tags.cb_cliff_orientation ~= cliff.cliff_orientation then
+            exported_entity.tags.cb_cliff_orientation = cliff.cliff_orientation
             changed = true
         end
-        if exported_entity.tags.cf_missing_cliff ~= nil then
-            exported_entity.tags.cf_missing_cliff = nil
+        if exported_entity.tags.cb_missing_cliff ~= nil then
+            exported_entity.tags.cb_missing_cliff = nil
             changed = true
         end
     else
-        if exported_entity.tags.cf_missing_cliff ~= true then
-            exported_entity.tags.cf_missing_cliff = true
+        if exported_entity.tags.cb_missing_cliff ~= true then
+            exported_entity.tags.cb_missing_cliff = true
             changed = true
         end
-        if exported_entity.tags.cf_cliff_orientation ~= nil then
-            exported_entity.tags.cf_cliff_orientation = nil
+        if exported_entity.tags.cb_cliff_orientation ~= nil then
+            exported_entity.tags.cb_cliff_orientation = nil
             changed = true
         end
     end

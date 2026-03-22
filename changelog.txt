@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.0.8
+Date: 21.03.2026
+  Bugfixes:
+    - Refactored cliff names
+  Changes:
+    - Migration: My apology, you must remake any cliff blueprints and delete the old blueprints
+---------------------------------------------------------------------------------------------------
 Version: 0.0.7
 Date: 21.03.2026
   Bugfixes:

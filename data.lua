@@ -5,7 +5,7 @@ local util = require("util")
 data:extend({
     {
         type = "collision-layer",
-        name = "cf_cliff"
+        name = "cb_cliff"
     }
 })
 
@@ -13,7 +13,7 @@ local cliff_definitions = {
     {
         name = "cliff",
         ingredient = "stone",
-        surface_conditions = mods["space-age"] and surface_conditions["nauvis"] or nil,
+        surface_conditions = mods["space-age"] and SURFACE_CONDITIONS["nauvis"] or nil,
     }
 }
 
@@ -22,21 +22,21 @@ if mods["space-age"] then
         {
             name = "cliff-fulgora",
             ingredient = "holmium-ore",
-            surface_conditions = surface_conditions["fulgora"],
+            surface_conditions = SURFACE_CONDITIONS["fulgora"],
         })
 
     table.insert(cliff_definitions,
         {
             name = "cliff-gleba",
             ingredient = "spoilage",
-            surface_conditions = surface_conditions["gleba"],
+            surface_conditions = SURFACE_CONDITIONS["gleba"],
         })
 
     table.insert(cliff_definitions,
         {
             name = "cliff-vulcanus",
             ingredient = "calcite",
-            surface_conditions = surface_conditions["vulcanus"],
+            surface_conditions = SURFACE_CONDITIONS["vulcanus"],
         })
 end
 
@@ -44,7 +44,7 @@ local technologies = data.raw["technology"]
 
 for _, definition in ipairs(cliff_definitions) do
     local cliff = definition.name
-    local name = mod_prefix .. cliff
+    local name = CLIFF_PREFIX .. cliff
 
     local entity = table.deepcopy(data.raw["cliff"][cliff])
     entity.name = name
@@ -70,7 +70,7 @@ for _, definition in ipairs(cliff_definitions) do
             is_object = true,
             is_lower_object = true,
             cliff = true,
-            cf_cliff = true
+            cb_cliff = true
         },
         not_colliding_with_itself = true
     }
@@ -193,7 +193,7 @@ for _, definition in ipairs(cliff_definitions) do
                     is_object = true,
                     is_lower_object = true,
                     cliff = true,
-                    cf_cliff = true
+                    cb_cliff = true
                 },
                 not_colliding_with_itself = true
             },

@@ -32,18 +32,18 @@ local function set_surface_conditions(name, surface_conditions)
 end
 
 local function apply_everything_on_nauvis_compat()
-    set_surface_conditions("cf-cliff", surface_conditions["nauvis"])
-    set_surface_conditions("cf-cliff-gleba", surface_conditions["nauvis"])
-    set_surface_conditions("cf-cliff-vulcanus", surface_conditions["nauvis"])
+    set_surface_conditions("cb-cliff", SURFACE_CONDITIONS["nauvis"])
+    set_surface_conditions("cb-cliff-gleba", SURFACE_CONDITIONS["nauvis"])
+    set_surface_conditions("cb-cliff-vulcanus", SURFACE_CONDITIONS["nauvis"])
 
-    set_hidden("cf-cliff-fulgora", true)
+    set_hidden("cb-cliff-fulgora", true)
 end
 
 local function apply_eon_fulgora_discovered_compat()
-    set_surface_conditions("cf-cliff", surface_conditions["nauvis"])
-    set_surface_conditions("cf-cliff-gleba", surface_conditions["nauvis"])
-    set_surface_conditions("cf-cliff-vulcanus", surface_conditions["nauvis"])
-    set_surface_conditions("cf-cliff-fulgora", surface_conditions["fulgora"])
+    set_surface_conditions("cb-cliff", SURFACE_CONDITIONS["nauvis"])
+    set_surface_conditions("cb-cliff-gleba", SURFACE_CONDITIONS["nauvis"])
+    set_surface_conditions("cb-cliff-vulcanus", SURFACE_CONDITIONS["nauvis"])
+    set_surface_conditions("cb-cliff-fulgora", SURFACE_CONDITIONS["fulgora"])
 end
 
 if mods["space-age"] then
