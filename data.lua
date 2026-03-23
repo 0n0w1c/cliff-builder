@@ -4,6 +4,27 @@ local util = require("util")
 
 data:extend({
     {
+        type = "custom-input",
+        name = "cliff-flip",
+        key_sequence = "SHIFT + R",
+        include_selected_prototype = true,
+    },
+    {
+        type = "custom-input",
+        name = "cliff-flip-selected",
+        key_sequence = "R",
+        include_selected_prototype = true,
+    },
+    {
+        type = "custom-input",
+        name = "display-cliff-orientation",
+        key_sequence = "SHIFT + mouse-button-1",
+        consuming = "none"
+    }
+})
+
+data:extend({
+    {
         type = "collision-layer",
         name = "cb_cliff"
     }
@@ -121,17 +142,6 @@ for _, definition in ipairs(cliff_definitions) do
 
     data:extend({
         {
-            type = "item",
-            name = "invisible-4x4-" .. name,
-            icon = icon,
-            icon_size = 64,
-            stack_size = 50,
-            weight = 20 * kg,
-            place_result = "invisible-4x4-" .. name,
-            hidden_in_factoriopedia = true
-        },
-
-        {
             type = "simple-entity-with-owner",
             name = "invisible-4x4-" .. name,
             icon = icon,
@@ -150,21 +160,21 @@ for _, definition in ipairs(cliff_definitions) do
             collision_mask = { layers = {} },
 
             picture = util.empty_sprite(),
-        }
-    })
-
-    data:extend({
+        },
         {
             type = "item",
-            name = "visible-4x4-" .. name,
+            name = "invisible-4x4-" .. name,
             icon = icon,
             icon_size = 64,
             stack_size = 50,
             weight = 20 * kg,
-            place_result = "visible-4x4-" .. name,
-            hidden_in_factoriopedia = true
-        },
+            place_result = "invisible-4x4-" .. name,
+            hidden_in_factoriopedia = true,
+            auto_recycle = false
+        }
+    })
 
+    data:extend({
         {
             type = "simple-entity-with-owner",
             name = "visible-4x4-" .. name,
@@ -205,27 +215,17 @@ for _, definition in ipairs(cliff_definitions) do
                 height = 256,
                 scale = 0.5
             }
+        },
+        {
+            type = "item",
+            name = "visible-4x4-" .. name,
+            icon = icon,
+            icon_size = 64,
+            stack_size = 50,
+            weight = 20 * kg,
+            place_result = "visible-4x4-" .. name,
+            hidden_in_factoriopedia = true,
+            auto_recycle = false
         }
     })
 end
-
-data:extend({
-    {
-        type = "custom-input",
-        name = "cliff-flip",
-        key_sequence = "SHIFT + R",
-        include_selected_prototype = true,
-    },
-    {
-        type = "custom-input",
-        name = "cliff-flip-selected",
-        key_sequence = "R",
-        include_selected_prototype = true,
-    },
-    {
-        type = "custom-input",
-        name = "display-cliff-orientation",
-        key_sequence = "SHIFT + mouse-button-1",
-        consuming = "none"
-    }
-})
