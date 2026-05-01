@@ -34,7 +34,6 @@ local cliff_definitions = {
     {
         name = "cliff",
         ingredient = "stone",
-        surface_conditions = mods["space-age"] and SURFACE_CONDITIONS["nauvis"] or nil,
     }
 }
 
@@ -43,24 +42,20 @@ if mods["space-age"] then
         {
             name = "cliff-fulgora",
             ingredient = "holmium-ore",
-            surface_conditions = SURFACE_CONDITIONS["fulgora"],
         })
 
     table.insert(cliff_definitions,
         {
             name = "cliff-gleba",
             ingredient = "spoilage",
-            surface_conditions = SURFACE_CONDITIONS["gleba"],
         })
 
     table.insert(cliff_definitions,
         {
             name = "cliff-vulcanus",
             ingredient = "calcite",
-            surface_conditions = SURFACE_CONDITIONS["vulcanus"],
         })
 end
-
 local technologies = data.raw["technology"]
 
 for _, definition in ipairs(cliff_definitions) do
@@ -73,7 +68,7 @@ for _, definition in ipairs(cliff_definitions) do
     entity.minable = { mining_time = 1.0, result = name, count = 1 }
     entity.selectable_in_game = true
     entity.placeable_by = { item = name, count = 1 }
-    entity.surface_conditions = definition.surface_conditions
+    entity.surface_conditions = nil
 
     entity.flags = {
         "player-creation",
@@ -125,7 +120,6 @@ for _, definition in ipairs(cliff_definitions) do
             enabled = false,
             energy_required = 1,
             category = "crafting",
-            surface_conditions = definition.surface_conditions,
             ingredients = {
                 { type = "item", name = "landfill",            amount = 4 },
                 { type = "item", name = definition.ingredient, amount = 10 }
