@@ -1,11 +1,9 @@
-## Cliff Builder
-
-Craft, place, mine, and blueprint cliffs  
-
-#### Hotkeys
+#### Hotkeys:
 *R* Flip the selected cliff  
 *Shift + R* Flip the entire cliff chain  
 *Shift + Left-mouse-click* Display the selected cliff's orientation  
+
+---
 
 #### Notes:
 * Proper cliffs consist of a minimum of two adjacent cliffs, a single cliff is incomplete.  
@@ -14,7 +12,3 @@ Craft, place, mine, and blueprint cliffs
 * Using robots to mine cliffs will result in a small loss of cliff items due to game engine mechanics.  
 * Rotating blueprints is not supported.  
 * Undo/Redo is not supported.  
-
-#### Supported mods:
-[Everything On Nauvis](https://mods.factorio.com/mod/EverythingOnNauvis)  
-[Everything On Nauvis - Fulgora Discovered!](https://mods.factorio.com/mod/EON-FulgoraDiscovered)  
