@@ -14,7 +14,7 @@ Map generated cliffs will be minable but can not be blueprinted
 Runtime migration when startup setting is enabled/disabled  
 
 #### Notes:
-* Proper cliffs consist of a minimum of two adjacent cliffs, a single cliff is incomplete. (Except on Fulgora) 
+* Proper cliffs consist of a minimum of two adjacent cliffs, a single cliff is incomplete.
 * When using hotkeys to flip the cliff perspective, there is a "sweet spot" for the mouse cursor.  
 * Rotating blueprints is not supported.  
 * Undo/Redo is not supported, but some operations do work.  
