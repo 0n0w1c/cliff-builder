@@ -19,11 +19,23 @@ local function starts_with(str, prefix)
     return type(str) == "string" and string.sub(str, 1, #prefix) == prefix
 end
 
+--- Returns whether the startup setting requests map_gen/vanilla cliff prototypes.
+--- @return boolean
+local function use_map_gen_cliffs()
+    local setting = settings.startup[USE_MAP_GEN_CLIFFS_SETTING]
+    return setting and setting.value == true
+end
+
 --- Returns whether a cliff prototype name belongs to this mod.
---- Supported cliff-builder cliffs are named with the `cb-` prefix.
+--- By default, cliff-builder cliffs are named with the `cb-` prefix.
+--- With "Use map_gen cliffs" enabled, the supported names are the vanilla cliff prototypes.
 --- @param cliff_name string|nil
 --- @return boolean
 local function is_supported_cliff_name(cliff_name)
+    if type(cliff_name) ~= "string" then return false end
+    if use_map_gen_cliffs() then
+        return MAP_GEN_CLIFF_NAMES[cliff_name] == true
+    end
     return starts_with(cliff_name, CLIFF_PREFIX)
 end
 
@@ -35,32 +47,84 @@ local function is_supported_cliff_entity(entity)
     return entity.type == "cliff" and is_supported_cliff_name(entity.name)
 end
 
---- Returns whether an entity is a visible marker managed by this mod.
---- @param entity LuaEntity|nil
---- @return boolean
-local function is_supported_visible_marker_entity(entity)
-    if not (entity and entity.valid) then return false end
-    return starts_with(entity.name, VISIBLE_PREFIX .. CLIFF_PREFIX)
+local cliff_name_from_visible_marker
+local visible_marker_name_from_invisible
+local MIGRATION_TO_MAP_GEN = "to-map-gen"
+local MIGRATION_TO_CB = "to-cb"
+
+--- Returns the migration direction that matches the current startup setting.
+--- @return string direction
+local function active_migration_direction()
+    return use_map_gen_cliffs() and MIGRATION_TO_MAP_GEN or MIGRATION_TO_CB
 end
 
---- Returns whether an entity is an invisible marker managed by this mod.
---- @param entity LuaEntity|nil
---- @return boolean
-local function is_supported_invisible_marker_entity(entity)
-    if not (entity and entity.valid) then return false end
-    return starts_with(entity.name, INVISIBLE_PREFIX .. CLIFF_PREFIX)
+--- Converts a cliff prototype name from one startup-setting family to the other.
+--- @param cliff_name string|nil
+--- @param direction string One of MIGRATION_TO_MAP_GEN or MIGRATION_TO_CB.
+--- @return string|nil converted_cliff_name
+local function convert_cliff_name_for_direction(cliff_name, direction)
+    if not cliff_name then return nil end
+
+    if direction == MIGRATION_TO_MAP_GEN then
+        if not starts_with(cliff_name, CLIFF_PREFIX) then return nil end
+
+        local vanilla_name = string.sub(cliff_name, #CLIFF_PREFIX + 1)
+        if MAP_GEN_CLIFF_NAMES[vanilla_name] then
+            return vanilla_name
+        end
+
+        return nil
+    end
+
+    if direction == MIGRATION_TO_CB then
+        if not MAP_GEN_CLIFF_NAMES[cliff_name] then return nil end
+        return CLIFF_PREFIX .. cliff_name
+    end
+
+    return nil
 end
 
---- Converts a visible marker prototype name into its cliff prototype name.
---- Example: `"visible-4x4-cb-cliff"` -> `"cb-cliff"`.
+--- Converts a visible or invisible marker prototype/item name between startup-setting families.
+--- @param marker_name string|nil
+--- @param marker_prefix string
+--- @param direction string One of MIGRATION_TO_MAP_GEN or MIGRATION_TO_CB.
+--- @return string|nil converted_marker_name
+local function convert_marker_name_for_direction(marker_name, marker_prefix, direction)
+    if not marker_name then return nil end
+    if not starts_with(marker_name, marker_prefix) then return nil end
+
+    local cliff_name = string.sub(marker_name, #marker_prefix + 1)
+    local converted_cliff_name = convert_cliff_name_for_direction(cliff_name, direction)
+    if converted_cliff_name then
+        return marker_prefix .. converted_cliff_name
+    end
+
+    return nil
+end
+
+--- Converts an item prototype name between startup-setting families.
+--- Handles cliff items plus hidden visible/invisible marker items kept for compatibility.
+--- @param item_name string|nil
+--- @param direction string One of MIGRATION_TO_MAP_GEN or MIGRATION_TO_CB.
+--- @return string|nil converted_item_name
+local function convert_item_name_for_direction(item_name, direction)
+    return convert_cliff_name_for_direction(item_name, direction)
+        or convert_marker_name_for_direction(item_name, VISIBLE_PREFIX, direction)
+        or convert_marker_name_for_direction(item_name, INVISIBLE_PREFIX, direction)
+end
+
+--- Converts a visible marker prototype name into the active cliff prototype name.
+--- Example: `"visible-4x4-cb-cliff"` -> `"cliff"` while map-gen mode is enabled.
 --- @param marker_name string
 --- @return string|nil cliff_entity_name
-local function cliff_name_from_visible_marker(marker_name)
+cliff_name_from_visible_marker = function(marker_name)
     if not starts_with(marker_name, VISIBLE_PREFIX) then return nil end
-    return string.sub(marker_name, #VISIBLE_PREFIX + 1)
+
+    local cliff_name = string.sub(marker_name, #VISIBLE_PREFIX + 1)
+    return convert_cliff_name_for_direction(cliff_name, active_migration_direction()) or cliff_name
 end
 
---- Converts a cliff prototype name into its invisible marker prototype name.
+--- Converts a cliff prototype name into its active invisible marker prototype name.
 --- Example: `"cb-cliff"` -> `"invisible-4x4-cb-cliff"`.
 --- @param cliff_entity_name string
 --- @return string marker_entity_name
@@ -68,13 +132,32 @@ local function invisible_marker_name_for_cliff(cliff_entity_name)
     return INVISIBLE_PREFIX .. cliff_entity_name
 end
 
---- Converts an invisible marker prototype name into its visible marker prototype name.
+--- Converts an invisible marker prototype name into the corresponding visible marker prototype name.
 --- Example: `"invisible-4x4-cb-cliff"` -> `"visible-4x4-cb-cliff"`.
 --- @param marker_name string
 --- @return string|nil visible_marker_name
-local function visible_marker_name_from_invisible(marker_name)
+visible_marker_name_from_invisible = function(marker_name)
     if not starts_with(marker_name, INVISIBLE_PREFIX) then return nil end
     return VISIBLE_PREFIX .. string.sub(marker_name, #INVISIBLE_PREFIX + 1)
+end
+
+--- Returns whether an entity is a visible marker managed by this mod.
+--- @param entity LuaEntity|nil
+--- @return boolean
+local function is_supported_visible_marker_entity(entity)
+    if not (entity and entity.valid) then return false end
+    local cliff_name = cliff_name_from_visible_marker(entity.name)
+    return is_supported_cliff_name(cliff_name)
+end
+
+--- Returns whether an entity is an invisible marker managed by this mod.
+--- @param entity LuaEntity|nil
+--- @return boolean
+local function is_supported_invisible_marker_entity(entity)
+    if not (entity and entity.valid) then return false end
+    local visible_marker_name = visible_marker_name_from_invisible(entity.name)
+    local cliff_name = visible_marker_name and cliff_name_from_visible_marker(visible_marker_name) or nil
+    return is_supported_cliff_name(cliff_name)
 end
 
 --- Finds a value in an array-like table.
@@ -490,21 +573,52 @@ local function get_cardinal_chain_neighbors(cliff)
     return out
 end
 
---- Recursively flips the orientation of the connected cliff chain by spatial adjacency.
---- `flip_record` is used as a visited set in array form to prevent re-entry on loops.
---- @param flip_record LuaEntity[] Visited cliffs.
+--- Returns a stable key for a cliff during one traversal.
+--- Do not use unit_number here: cliffs do not reliably have one.
+--- Do not use the LuaEntity itself as a table key either; use immutable scalar values.
+--- @param cliff LuaEntity
+--- @return string|nil key
+local function cliff_traversal_key(cliff)
+    if not (cliff and cliff.valid) then return nil end
+
+    local surface = cliff.surface
+    local position = cliff.position
+    if not (surface and surface.valid and position) then return nil end
+
+    return surface.index .. ":" .. cliff.name .. ":" .. position.x .. ":" .. position.y
+end
+
+--- Iteratively flips the orientation of the connected cliff chain by spatial adjacency.
+--- `flip_record` is keyed by stable surface/name/position strings.
+--- @param flip_record table<string, boolean> Visited cliffs.
 --- @param cliff LuaEntity
 local function flip_chain(flip_record, cliff)
     if not (cliff and cliff.valid) then return end
-    if helper_find_in_table(flip_record, cliff) then return end
 
-    table.insert(flip_record, cliff)
+    local stack = { cliff }
 
-    local new = flip_orientation(cliff.cliff_orientation)
-    rotate_cliff(cliff, new)
+    while #stack > 0 do
+        local current = table.remove(stack)
+        if current and current.valid then
+            local key = cliff_traversal_key(current)
+            if key and not flip_record[key] then
+                flip_record[key] = true
 
-    for _, next_cliff in ipairs(get_cardinal_chain_neighbors(cliff)) do
-        flip_chain(flip_record, next_cliff)
+                -- Capture neighbors before rotating. After the current cliff is flipped,
+                -- the old orientation no longer describes the chain connectivity to walk.
+                local neighbors = get_cardinal_chain_neighbors(current)
+
+                local new = flip_orientation(current.cliff_orientation)
+                rotate_cliff(current, new)
+
+                for _, next_cliff in ipairs(neighbors) do
+                    local next_key = cliff_traversal_key(next_cliff)
+                    if next_key and not flip_record[next_key] then
+                        table.insert(stack, next_cliff)
+                    end
+                end
+            end
+        end
     end
 end
 
@@ -648,12 +762,18 @@ local function ensure_chain_continuity(cliff, direction_1, direction_2)
     local up_split = tokenize(up.cliff_orientation, "-")
     local down_split = tokenize(down.cliff_orientation, "-")
 
+    local source_key = cliff_traversal_key(cliff)
+    local flip_record = {}
+    if source_key then
+        flip_record[source_key] = true
+    end
+
     if cliff_split[1] ~= cardinal_reverse(up_split[3]) then
-        flip_chain({ cliff }, up)
+        flip_chain(flip_record, up)
     end
 
     if cliff_split[3] ~= cardinal_reverse(down_split[1]) then
-        flip_chain({ cliff }, down)
+        flip_chain(flip_record, down)
     end
 end
 
@@ -678,6 +798,57 @@ local function remove_invisible_marker_for_cliff(cliff)
     end
 end
 
+--- Destroys cliff entities overlapping `cliff`, except for `cliff` itself.
+--- Used after a blueprint marker has produced the intended cliff so existing
+--- map cliffs are corrected without pre-clearing neighboring blueprint cliffs.
+--- @param cliff LuaEntity
+local function destroy_overlapping_cliffs_for_cliff(cliff)
+    if not (cliff and cliff.valid) then return end
+
+    local surface = cliff.surface
+    if not (surface and surface.valid) then return end
+
+    local cliffs = surface.find_entities_filtered {
+        type = "cliff",
+        position = cliff.position,
+        radius = 1
+    }
+
+    for _, other in ipairs(cliffs) do
+        if other and other.valid and other ~= cliff then
+            remove_invisible_marker_for_cliff(other)
+            other.destroy { do_cliff_correction = true }
+        end
+    end
+end
+
+--- Destroys cliff entities at the intended marker placement position.
+--- Used only after `can_place_entity` reports that the intended cliff is blocked,
+--- so ordinary neighboring blueprint-restored cliffs are not pre-cleared.
+--- @param surface LuaSurface
+--- @param position MapPosition
+--- @return boolean removed_any
+local function destroy_cliffs_blocking_marker_position(surface, position)
+    if not (surface and surface.valid and position) then return false end
+
+    local removed_any = false
+    local cliffs = surface.find_entities_filtered {
+        type = "cliff",
+        position = position,
+        radius = 1
+    }
+
+    for _, cliff in ipairs(cliffs) do
+        if cliff and cliff.valid then
+            remove_invisible_marker_for_cliff(cliff)
+            cliff.destroy { do_cliff_correction = true }
+            removed_any = true
+        end
+    end
+
+    return removed_any
+end
+
 --- Attempts to spawn a real cliff from a visible marker entity name.
 --- Any provided blueprint orientation tag is applied to the spawned cliff.
 --- @param surface LuaSurface
@@ -697,7 +868,17 @@ local function try_spawn_cliff_from_marker(surface, position, force, marker_enti
             position = position,
             force = force
         } then
-        return nil
+        if not destroy_cliffs_blocking_marker_position(surface, position) then
+            return nil
+        end
+
+        if not surface.can_place_entity {
+                name = cliff_name,
+                position = position,
+                force = force
+            } then
+            return nil
+        end
     end
 
     local cliff = surface.create_entity {
@@ -707,6 +888,8 @@ local function try_spawn_cliff_from_marker(surface, position, force, marker_enti
         raise_built = false
     }
     if not (cliff and cliff.valid) then return nil end
+
+    destroy_overlapping_cliffs_for_cliff(cliff)
 
     if tags and tags.cb_cliff_orientation then
         rotate_cliff(cliff, tostring(tags.cb_cliff_orientation))
@@ -810,6 +993,7 @@ end
 local function handle_cliff_built(cliff)
     if not is_supported_cliff_entity(cliff) then return end
 
+    destroy_overlapping_cliffs_for_cliff(cliff)
     spawn_invisible_marker_for_cliff(cliff)
 
     local adjacent_ends = get_cardinal_end_neighbors(cliff)
@@ -827,21 +1011,272 @@ local function handle_cliff_built(cliff)
     end
 end
 
---- Destroys any cliff or invisible marker entities occupying the given tile probe area.
---- Used before restoring a real cliff from a visible marker.
+--- Destroys invisible marker companions occupying the exact marker probe area.
+--- Existing cliffs are intentionally not pre-cleared here. Overlapping cliffs are
+--- removed only when they block the intended cliff or after the intended cliff exists,
+--- so blueprint-restored neighbors are not deleted before their own marker events run.
 --- @param surface LuaSurface
 --- @param position MapPosition
-local function clear_cliff_tile(surface, position)
+local function clear_invisible_markers_at_position(surface, position)
     local entities = surface.find_entities_filtered {
         position = position,
         radius = 1
     }
 
     for _, entity in ipairs(entities) do
-        if entity.valid and (is_supported_cliff_entity(entity) or is_supported_invisible_marker_entity(entity)) then
+        if entity.valid and is_supported_invisible_marker_entity(entity) then
             entity.destroy()
         end
     end
+end
+
+-----------------------------
+-- Startup-setting state migration
+-----------------------------
+
+--- Finds the cliff represented by an invisible marker in the source startup-setting family.
+--- @param marker LuaEntity
+--- @param direction string One of MIGRATION_TO_MAP_GEN or MIGRATION_TO_CB.
+--- @return LuaEntity|nil cliff
+local function find_source_cliff_for_invisible_marker(marker, direction)
+    if not (marker and marker.valid) then return nil end
+    if not starts_with(marker.name, INVISIBLE_PREFIX) then return nil end
+
+    local source_cliff_name = string.sub(marker.name, #INVISIBLE_PREFIX + 1)
+    if not convert_cliff_name_for_direction(source_cliff_name, direction) then return nil end
+
+    local cliffs = marker.surface.find_entities_filtered {
+        name = source_cliff_name,
+        position = marker.position,
+        radius = 1
+    }
+
+    for _, cliff in ipairs(cliffs) do
+        if cliff.valid and cliff.type == "cliff" and cliff.name == source_cliff_name then
+            return cliff
+        end
+    end
+
+    return nil
+end
+
+--- Replaces one cliff with its equivalent prototype in the target startup-setting family.
+--- @param cliff LuaEntity
+--- @param direction string One of MIGRATION_TO_MAP_GEN or MIGRATION_TO_CB.
+--- @return LuaEntity|nil migrated_cliff
+local function migrate_cliff_entity_for_direction(cliff, direction)
+    if not (cliff and cliff.valid and cliff.type == "cliff") then return nil end
+
+    local new_name = convert_cliff_name_for_direction(cliff.name, direction)
+    if not new_name then return nil end
+
+    local surface = cliff.surface
+    local position = { x = cliff.position.x, y = cliff.position.y }
+    local force = cliff.force
+    local orientation = cliff.cliff_orientation
+
+    remove_invisible_marker_for_cliff(cliff)
+    cliff.destroy { do_cliff_correction = false }
+
+    local migrated = surface.create_entity {
+        name = new_name,
+        position = position,
+        force = force,
+        raise_built = false
+    }
+
+    if not (migrated and migrated.valid) then return nil end
+
+    rotate_cliff(migrated, orientation)
+    return migrated
+end
+
+--- Replaces one invisible marker with its equivalent prototype in the target startup-setting family.
+--- If a matching marker already exists, the old marker is just removed.
+--- @param marker LuaEntity
+--- @param direction string One of MIGRATION_TO_MAP_GEN or MIGRATION_TO_CB.
+--- @return LuaEntity|nil migrated_marker
+local function migrate_invisible_marker_for_direction(marker, direction)
+    if not (marker and marker.valid) then return nil end
+
+    local new_name = convert_marker_name_for_direction(marker.name, INVISIBLE_PREFIX, direction)
+    if not new_name then return nil end
+
+    local surface = marker.surface
+    local position = { x = marker.position.x, y = marker.position.y }
+    local force = marker.force
+
+    local existing = surface.find_entities_filtered {
+        name = new_name,
+        position = position,
+        radius = 1
+    }
+
+    ---@type LuaEntity?
+    local migrated = existing and existing[1] or nil
+
+    if not (migrated and migrated.valid) then
+        migrated = surface.create_entity {
+            name = new_name,
+            position = position,
+            force = force,
+            raise_built = false
+        }
+    end
+
+    marker.destroy()
+
+    if migrated and migrated.valid then
+        return migrated
+    end
+
+    return nil
+end
+
+--- Migrates one invisible-marker/cliff pair to the target startup-setting family.
+--- The invisible marker is the ownership proof, so natural map-gen cliffs are ignored.
+--- @param marker LuaEntity
+--- @param direction string One of MIGRATION_TO_MAP_GEN or MIGRATION_TO_CB.
+--- @return boolean migrated
+local function migrate_marked_cliff_pair_for_direction(marker, direction)
+    if not (marker and marker.valid) then return false end
+
+    local cliff = find_source_cliff_for_invisible_marker(marker, direction)
+    if not (cliff and cliff.valid) then
+        return migrate_invisible_marker_for_direction(marker, direction) ~= nil
+    end
+
+    local migrated_cliff = migrate_cliff_entity_for_direction(cliff, direction)
+    if not (migrated_cliff and migrated_cliff.valid) then return false end
+
+    -- Prefer creating the companion marker from the migrated cliff so marker naming stays
+    -- centralized in `invisible_marker_name_for_cliff`.
+    spawn_invisible_marker_for_cliff(migrated_cliff)
+
+    if marker.valid then
+        marker.destroy()
+    end
+
+    return true
+end
+
+--- Migrates placed cliff/marker pairs on all surfaces to match the current startup setting.
+local function migrate_all_entities_for_current_setting()
+    local direction = active_migration_direction()
+
+    for _, surface in pairs(game.surfaces) do
+        -- Invisible markers are the ownership marker for both directions. This keeps the
+        -- migration symmetric and prevents natural map-generated cliffs from being converted.
+        local markers = surface.find_entities_filtered { type = "simple-entity-with-owner" }
+        for _, marker in ipairs(markers) do
+            if marker.valid and convert_marker_name_for_direction(marker.name, INVISIBLE_PREFIX, direction) then
+                migrate_marked_cliff_pair_for_direction(marker, direction)
+            end
+        end
+    end
+end
+
+--- Safely reads an inventory from an owner that supports `get_inventory`.
+--- @param owner LuaPlayer|LuaEntity
+--- @param inventory_type defines.inventory
+--- @return LuaInventory|nil
+local function get_inventory_safe(owner, inventory_type)
+    local ok, inventory = pcall(function()
+        return owner.get_inventory(inventory_type)
+    end)
+
+    if ok and inventory and inventory.valid then
+        return inventory
+    end
+
+    return nil
+end
+
+--- Replaces item stacks in one inventory using the supplied name mapper.
+--- Quality is preserved when present. If insertion somehow cannot fit, the remainder is restored as the old item.
+--- @param inventory LuaInventory|nil
+--- @param map_item_name fun(item_name:string|nil):string|nil
+--- @return uint migrated_count
+local function migrate_inventory_items(inventory, map_item_name)
+    if not (inventory and inventory.valid) then return 0 end
+
+    local migrated_count = 0
+    local contents = inventory.get_contents()
+
+    for _, stack in ipairs(contents) do
+        local old_name = stack.name
+        local new_name = map_item_name(old_name)
+
+        if new_name and new_name ~= old_name then
+            local count = stack.count or 0
+            if count > 0 then
+                local quality = stack.quality
+                local removed = inventory.remove { name = old_name, count = count, quality = quality }
+
+                if removed > 0 then
+                    local inserted = inventory.insert { name = new_name, count = removed, quality = quality }
+                    migrated_count = migrated_count + inserted
+
+                    local remainder = removed - inserted
+                    if remainder > 0 then
+                        inventory.insert { name = old_name, count = remainder, quality = quality }
+                    end
+                end
+            end
+        end
+    end
+
+    return migrated_count
+end
+
+--- Migrates matching item stacks held by players.
+--- @param map_item_name fun(item_name:string|nil):string|nil
+local function migrate_player_items(map_item_name)
+    for _, player in pairs(game.players) do
+        migrate_inventory_items(player.get_main_inventory(), map_item_name)
+
+        local trash = get_inventory_safe(player, defines.inventory.character_trash)
+        migrate_inventory_items(trash, map_item_name)
+    end
+end
+
+--- Migrates matching item stacks in regular and logistic chests.
+--- @param map_item_name fun(item_name:string|nil):string|nil
+local function migrate_chest_items(map_item_name)
+    local chest_entity_types = { "container", "logistic-container" }
+
+    for _, surface in pairs(game.surfaces) do
+        for _, entity_type in ipairs(chest_entity_types) do
+            local entities = surface.find_entities_filtered { type = entity_type }
+            for _, entity in ipairs(entities) do
+                if entity.valid then
+                    local inventory = get_inventory_safe(entity, defines.inventory.chest)
+                    migrate_inventory_items(inventory, map_item_name)
+                end
+            end
+        end
+    end
+end
+
+--- Migrates item stacks to match the current startup setting.
+--- Map-gen mode converts cb-* items to vanilla/map-gen items.
+--- Cliff-builder mode converts vanilla/map-gen items to cb-* items.
+local function migrate_all_items_for_current_setting()
+    local direction = active_migration_direction()
+
+    local function convert_name(item_name)
+        return convert_item_name_for_direction(item_name, direction)
+    end
+
+    migrate_player_items(convert_name)
+    migrate_chest_items(convert_name)
+end
+
+--- Handles save migration after startup setting or prototype changes.
+--- @param _event ConfigurationChangedData
+local function on_configuration_changed(_event)
+    migrate_all_entities_for_current_setting()
+    migrate_all_items_for_current_setting()
 end
 
 -----------------------------
@@ -864,8 +1299,11 @@ local function on_any_built(event)
         return
     end
 
-    if entity.type == "entity-ghost" and starts_with(entity.ghost_name, VISIBLE_PREFIX .. CLIFF_PREFIX) then
-        return
+    if entity.type == "entity-ghost" then
+        local cliff_name = cliff_name_from_visible_marker(entity.ghost_name)
+        if is_supported_cliff_name(cliff_name) then
+            return
+        end
     end
 
     if is_supported_visible_marker_entity(entity) then
@@ -882,7 +1320,7 @@ local function on_any_built(event)
 
         entity.destroy()
 
-        clear_cliff_tile(surface, position)
+        clear_invisible_markers_at_position(surface, position)
 
         local spawned = try_spawn_cliff_from_marker(surface, position, force, marker_name, tags)
         if spawned then
@@ -893,7 +1331,7 @@ local function on_any_built(event)
 end
 
 --- Handles cliff removal/mining/death cleanup.
---- Also refunds silently deleted newly-isolated neighbor endcaps to the mining player, when present.
+--- Also refunds silently deleted newly-isolated neighbor endcaps through the mining event buffer, when present.
 --- @param event EventData.on_player_mined_entity
 ---| EventData.on_robot_mined_entity
 ---| EventData.on_entity_died
@@ -902,6 +1340,7 @@ local function on_cliff_removed(event)
     if not is_supported_cliff_entity(cliff) then return end
 
     local player = event.player_index and game.get_player(event.player_index) or nil
+    local refund_inventory = event.buffer
     local neighbors = get_cliff_neighbors(cliff)
 
     if neighbors then
@@ -910,7 +1349,9 @@ local function on_cliff_removed(event)
                 remove_invisible_marker_for_cliff(neighbor)
                 remove_isolated_cliff(neighbor)
 
-                if player then
+                if refund_inventory and refund_inventory.valid then
+                    refund_inventory.insert { name = neighbor.name, count = 1 }
+                elseif player then
                     player.insert { name = neighbor.name, count = 1 }
                 end
             end
@@ -925,23 +1366,32 @@ end
 -- Custom input handlers
 -----------------------------
 
---- Flips the entire connected chain under the cursor when the selected prototype is a cliff.
+--- Flips the entire connected chain under the cursor or current selection.
 --- @param event EventData.CustomInputEvent
 local function flip_cliff_event(event)
-    local entity = event.selected_prototype
-    if entity then
-        if entity.derived_type == "cliff" then
-            local player = game.get_player(event.player_index)
-            if not player then return end
-            local surface = player.surface
-            local cliffs = surface.find_entities_filtered({ type = "cliff", position = event.cursor_position, radius = 1 })
-            for _, cliff in ipairs(cliffs) do
-                if is_supported_cliff_entity(cliff) then
-                    local flip_record = {}
-                    flip_chain(flip_record, cliff)
-                    break
-                end
-            end
+    local player = game.get_player(event.player_index)
+    if not player then return end
+
+    local selected = player.selected
+    if selected and is_supported_cliff_entity(selected) then
+        flip_chain({}, selected)
+        return
+    end
+
+    local cursor_position = event.cursor_position
+    if not cursor_position then return end
+
+    local surface = player.surface
+    local cliffs = surface.find_entities_filtered {
+        type = "cliff",
+        position = cursor_position,
+        radius = 1
+    }
+
+    for _, cliff in ipairs(cliffs) do
+        if is_supported_cliff_entity(cliff) then
+            flip_chain({}, cliff)
+            break
         end
     end
 end
@@ -953,6 +1403,8 @@ local function flip_cliff_selected_event(event)
     if not player then return end
 
     local entity = player.selected
+    if not entity then return end
+
     if is_supported_cliff_entity(entity) then
         local cliff = entity
         local new = flip_orientation(cliff.cliff_orientation)
@@ -967,6 +1419,8 @@ local function display_selected_cliff_orientation(event)
     if not player then return end
 
     local entity = player.selected
+    if not entity then return end
+
     if is_supported_cliff_entity(entity) then
         player.create_local_flying_text {
             text = entity.cliff_orientation,
@@ -1078,29 +1532,55 @@ local function rewrite_exported_cliff_entities(exported_entities, mapping)
     return changed
 end
 
+
+--- Rewrites blueprint entity names so legacy/current entities match the active startup mode.
+--- This keeps old blueprints from placing compatibility entities that would restore the
+--- inactive cliff prototype family.
+--- @param exported_entities BlueprintEntity[]
+--- @return boolean changed
+local function normalize_exported_entity_names_for_active_mode(exported_entities)
+    if not exported_entities then return false end
+
+    local changed = false
+    local direction = active_migration_direction()
+
+    for _, exported_entity in ipairs(exported_entities) do
+        local new_name = convert_item_name_for_direction(exported_entity.name, direction)
+        if new_name and exported_entity.name ~= new_name then
+            exported_entity.name = new_name
+            changed = true
+        end
+    end
+
+    return changed
+end
+
 --- Handles both normal blueprint setup and copy/paste-style temporary blueprint setup.
 --- @param event EventData.on_player_setup_blueprint
 local function on_player_setup_blueprint(event)
     if not event.mapping then return end
 
-    local player = game.get_player(event.player_index)
-    if not (player and player.valid) then return end
-
-    local stack = player.blueprint_to_setup
-    if not (stack and stack.valid_for_read and stack.is_blueprint) then
-        stack = player.cursor_stack
-        if not (stack and stack.valid_for_read and stack.is_blueprint) then
-            return
-        end
-    end
+    local stack = event.stack
+    if not (stack and stack.valid_for_read and stack.is_blueprint) then return end
 
     local exported_entities = stack.get_blueprint_entities()
     if not exported_entities then return end
 
+    local changed = normalize_exported_entity_names_for_active_mode(exported_entities)
+
     local mapping = event.mapping:get()
-    if not mapping or type(mapping) ~= "table" then return end
+    if not mapping or type(mapping) ~= "table" then
+        if changed then
+            stack.set_blueprint_entities(exported_entities)
+        end
+        return
+    end
 
     if rewrite_exported_cliff_entities(exported_entities, mapping) then
+        changed = true
+    end
+
+    if changed then
         stack.set_blueprint_entities(exported_entities)
     end
 end
@@ -1108,6 +1588,9 @@ end
 -----------------------------
 -- Event hooks
 -----------------------------
+
+
+script.on_configuration_changed(on_configuration_changed)
 
 script.on_event(defines.events.on_built_entity, on_any_built)
 script.on_event(defines.events.on_robot_built_entity, on_any_built)

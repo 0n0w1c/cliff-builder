@@ -1,4 +1,13 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.2.0
+Date: 09.05.2026
+  Bugfixes:
+    - None
+  Changes:
+    - Added the startup setting: Use vanilla cliffs (default: disabled)
+      Map generated cliffs will be minable but can not be blueprinted
+      Runtime migration when startup setting is enabled/disabled
+---------------------------------------------------------------------------------------------------
 Version: 0.1.0
 Date: 30.04.2026
   Bugfixes:

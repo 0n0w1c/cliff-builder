@@ -1,14 +1,24 @@
-#### Hotkeys:
+## Cliff Builder
+
+Craft, place, mine, and blueprint cliffs  
+
+#### Hotkeys
 *R* Flip the selected cliff  
 *Shift + R* Flip the entire cliff chain  
 *Shift + Left-mouse-click* Display the selected cliff's orientation  
 
----
+#### Startup setting:
+*Use vanilla cliffs (default: disabled)*
+
+Map generated cliffs will be minable but can not be blueprinted  
+Runtime migration when startup setting is enabled/disabled  
 
 #### Notes:
-* Proper cliffs consist of a minimum of two adjacent cliffs, a single cliff is incomplete.  
+* Proper cliffs consist of a minimum of two adjacent cliffs, a single cliff is incomplete. (Except on Fulgora) 
 * When using hotkeys to flip the cliff perspective, there is a "sweet spot" for the mouse cursor.  
-* When placing blueprints, you are responsible for proper spacing to other cliffs.  
-* Using robots to mine cliffs will result in a small loss of cliff items due to game engine mechanics.  
 * Rotating blueprints is not supported.  
-* Undo/Redo is not supported.  
+* Undo/Redo is not supported, but some operations do work.  
+
+#### Supported mods:
+[Everything On Nauvis](https://mods.factorio.com/mod/EverythingOnNauvis)  
+[Everything On Nauvis - Fulgora Discovered!](https://mods.factorio.com/mod/EON-FulgoraDiscovered)  
