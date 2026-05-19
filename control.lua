@@ -284,17 +284,135 @@ local MOUNTAIN_RANGE_CLIFFS = {
     ["crater-cliff"] = true
 }
 
---- Returns a surface-specific visual mountain cliff prototype when one exists.
+-- Runtime cannot read data.raw, so these tile groups mirror the vanilla / Space Age
+-- planet autoplace tile sets from data.raw. Mountain-range visual variants are chosen
+-- from the actual 4x4 placement footprint instead of from the surface name, which
+-- lets mixed-surface mods and imported planet tiles get the right mountain color.
+local PLANET_TILE_SETS = {
+    nauvis = {
+        ["grass-1"] = true, ["grass-2"] = true, ["grass-3"] = true, ["grass-4"] = true,
+        ["dry-dirt"] = true, ["dirt-1"] = true, ["dirt-2"] = true, ["dirt-3"] = true,
+        ["dirt-4"] = true, ["dirt-5"] = true, ["dirt-6"] = true, ["dirt-7"] = true,
+        ["sand-1"] = true, ["sand-2"] = true, ["sand-3"] = true,
+        ["red-desert-0"] = true, ["red-desert-1"] = true, ["red-desert-2"] = true,
+        ["red-desert-3"] = true, ["water"] = true, ["deepwater"] = true
+    },
+    fulgora = {
+        ["oil-ocean-shallow"] = true, ["oil-ocean-deep"] = true, ["fulgoran-rock"] = true,
+        ["fulgoran-dust"] = true, ["fulgoran-sand"] = true, ["fulgoran-dunes"] = true,
+        ["fulgoran-walls"] = true, ["fulgoran-paving"] = true, ["fulgoran-conduit"] = true,
+        ["fulgoran-machinery"] = true
+    },
+    gleba = {
+        ["natural-yumako-soil"] = true, ["natural-jellynut-soil"] = true,
+        ["wetland-yumako"] = true, ["wetland-jellynut"] = true, ["wetland-blue-slime"] = true,
+        ["wetland-light-green-slime"] = true, ["wetland-green-slime"] = true,
+        ["wetland-light-dead-skin"] = true, ["wetland-dead-skin"] = true,
+        ["wetland-pink-tentacle"] = true, ["wetland-red-tentacle"] = true,
+        ["gleba-deep-lake"] = true, ["lowland-brown-blubber"] = true,
+        ["lowland-olive-blubber"] = true, ["lowland-olive-blubber-2"] = true,
+        ["lowland-olive-blubber-3"] = true, ["lowland-pale-green"] = true,
+        ["lowland-cream-cauliflower"] = true, ["lowland-cream-cauliflower-2"] = true,
+        ["lowland-dead-skin"] = true, ["lowland-dead-skin-2"] = true, ["lowland-cream-red"] = true,
+        ["lowland-red-vein"] = true, ["lowland-red-vein-2"] = true, ["lowland-red-vein-3"] = true,
+        ["lowland-red-vein-4"] = true, ["lowland-red-vein-dead"] = true,
+        ["lowland-red-infection"] = true, ["midland-turquoise-bark"] = true,
+        ["midland-turquoise-bark-2"] = true, ["midland-cracked-lichen"] = true,
+        ["midland-cracked-lichen-dull"] = true, ["midland-cracked-lichen-dark"] = true,
+        ["midland-yellow-crust"] = true, ["midland-yellow-crust-2"] = true,
+        ["midland-yellow-crust-3"] = true, ["midland-yellow-crust-4"] = true,
+        ["highland-dark-rock"] = true, ["highland-dark-rock-2"] = true,
+        ["highland-yellow-rock"] = true, ["pit-rock"] = true
+    },
+    aquilo = {
+        ["snow-flat"] = true, ["snow-crests"] = true, ["snow-lumpy"] = true, ["snow-patchy"] = true,
+        ["ice-rough"] = true, ["ice-smooth"] = true, ["brash-ice"] = true,
+        ["ammoniacal-ocean"] = true, ["ammoniacal-ocean-2"] = true
+    },
+    vulcanus = {
+        ["volcanic-soil-dark"] = true, ["volcanic-soil-light"] = true, ["volcanic-ash-soil"] = true,
+        ["volcanic-ash-flats"] = true, ["volcanic-ash-light"] = true, ["volcanic-ash-dark"] = true,
+        ["volcanic-cracks"] = true, ["volcanic-cracks-warm"] = true, ["volcanic-folds"] = true,
+        ["volcanic-folds-flat"] = true, ["lava"] = true, ["lava-hot"] = true,
+        ["volcanic-folds-warm"] = true, ["volcanic-pumice-stones"] = true,
+        ["volcanic-cracks-hot"] = true, ["volcanic-jagged-ground"] = true,
+        ["volcanic-smooth-stone"] = true, ["volcanic-smooth-stone-warm"] = true,
+        ["volcanic-ash-cracks"] = true
+    }
+}
+
+local NON_NAUVIS_TILE_PRIORITY = { "gleba", "aquilo", "vulcanus", "fulgora" }
+
+-- Vulcanus uses a white tint, which leaves the mountain sprites visually untinted.
+-- Use it as the neutral fallback when no tile in the 4x4 footprint is recognized.
+local DEFAULT_UNTINTED_MOUNTAIN_PLANET = "vulcanus"
+
+--- Returns the planet tile set found under the 4x4 mountain placement footprint.
+--- Non-Nauvis planet tiles take precedence over Nauvis tiles, so mixed Nauvis/Gleba
+--- footprints choose the non-Nauvis mountain. Nauvis is returned only when every tile
+--- in the footprint is recognized as Nauvis. If no decisive known tile set is found,
+--- returns nil so the caller can use the untinted fallback.
+--- @param surface LuaSurface|nil
+--- @param position MapPosition|nil
+--- @return string|nil planet_name
+local function planet_name_from_mountain_footprint_tiles(surface, position)
+    if not (surface and surface.valid and position) then return nil end
+
+    local counts = {}
+    local nauvis_count = 0
+    local total_tiles = 0
+    local tiles = surface.find_tiles_filtered {
+        area = {
+            { position.x - 2, position.y - 2 },
+            { position.x + 2, position.y + 2 }
+        }
+    } or {}
+
+    for _, tile in ipairs(tiles) do
+        local tile_name = tile and tile.name
+        if tile_name then
+            total_tiles = total_tiles + 1
+            if PLANET_TILE_SETS.nauvis[tile_name] then
+                nauvis_count = nauvis_count + 1
+            else
+                for planet_name, tile_set in pairs(PLANET_TILE_SETS) do
+                    if planet_name ~= "nauvis" and tile_set[tile_name] then
+                        counts[planet_name] = (counts[planet_name] or 0) + 1
+                    end
+                end
+            end
+        end
+    end
+
+    local best_planet = nil
+    local best_count = 0
+    for _, planet_name in ipairs(NON_NAUVIS_TILE_PRIORITY) do
+        local count = counts[planet_name] or 0
+        if count > best_count then
+            best_planet = planet_name
+            best_count = count
+        end
+    end
+
+    if best_planet then return best_planet end
+    if total_tiles > 0 and nauvis_count == total_tiles then return "nauvis" end
+
+    return nil
+end
+
+--- Returns a tile-specific visual mountain cliff prototype when one exists.
 --- @param cliff_name string
 --- @param surface LuaSurface|nil
+--- @param position MapPosition|nil
 --- @return string cliff_name
-local function visual_cliff_name_for_surface(cliff_name, surface)
-    if not (surface and surface.valid) then return cliff_name end
-
+local function visual_cliff_name_for_tiles(cliff_name, surface, position)
     local canonical_name = canonical_cliff_name(cliff_name) or cliff_name
     if MOUNTAIN_RANGE_CLIFFS[base_cliff_name(canonical_name)] ~= true then return cliff_name end
 
-    local variant_name = canonical_name .. "-" .. surface.name
+    local planet_name = planet_name_from_mountain_footprint_tiles(surface, position)
+        or DEFAULT_UNTINTED_MOUNTAIN_PLANET
+
+    local variant_name = canonical_name .. "-" .. planet_name
     if cliff_prototype_exists(variant_name) then return variant_name end
 
     return cliff_name
@@ -1129,7 +1247,7 @@ local function try_spawn_cliff_from_marker(surface, position, force, marker_enti
 
     local cliff_name = cliff_name_from_visible_marker(marker_entity_name)
     if not cliff_name then return nil end
-    cliff_name = visual_cliff_name_for_surface(cliff_name, surface)
+    cliff_name = visual_cliff_name_for_tiles(cliff_name, surface, position)
 
     local entity_orientation = tags and tonumber(tags.cb_entity_orientation) or nil
 
@@ -1250,15 +1368,14 @@ local function handle_cliff_join_built(cliff, adjacent_ends)
     end
 end
 
---- Replaces a freshly built mountain-range cliff with the visual variant for the
---- current surface, when one exists. This keeps Nauvis untinted while allowing
---- Fulgora and future surfaces to use local color variants.
+--- Replaces a freshly built mountain-range cliff with the visual variant selected
+--- from the 4x4 tile footprint under the mountain, when one exists.
 --- @param cliff LuaEntity
 --- @return LuaEntity cliff
 local function replace_with_surface_visual_variant_if_needed(cliff)
     if not (cliff and cliff.valid) then return cliff end
 
-    local desired_name = visual_cliff_name_for_surface(cliff.name, cliff.surface)
+    local desired_name = visual_cliff_name_for_tiles(cliff.name, cliff.surface, cliff.position)
     if desired_name == cliff.name then return cliff end
 
     local surface = cliff.surface

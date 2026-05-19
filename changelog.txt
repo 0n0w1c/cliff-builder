@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.3.2
+Date: 19.05.2026
+  Bugfixes:
+    - Adjusted the mountain tints
+  Changes:
+    - Mountain tint is determined by the tiles under the mountain (mods like EverythingOnNauvis)
+---------------------------------------------------------------------------------------------------
 Version: 0.3.1
 Date: 19.05.2026
   Bugfixes:

@@ -108,10 +108,10 @@ local function cliff_collision_mask(source)
 end
 
 local surface_mountain_range_tints = {
-    nauvis = { r = 0.863, g = 0.754, b = 0.647, a = 1 },
-    fulgora = { r = 1, g = 0.7, b = 0.7, a = 1 },
-    gleba = { r = 0.7, g = 1, b = 0.7, a = 1 },
-    aquilo = { r = 0.4, g = 0.8, b = 1, a = 1 },
+    nauvis = { r = 1, g = 0.833, b = 0.667, a = 1 },
+    fulgora = { r = 1, g = 0.667, b = 0.667, a = 1 },
+    gleba = { r = 0.667, g = 1, b = 0.667, a = 1 },
+    aquilo = { r = 0.4, g = 0.833, b = 1, a = 1 },
     vulcanus = { r = 1, g = 1, b = 1, a = 1 }
 }
 
