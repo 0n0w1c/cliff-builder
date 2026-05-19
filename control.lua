@@ -6,6 +6,11 @@ local INVISIBLE_PREFIX = "invisible-4x4-"
 local MAXIMUM_CLIFF_CHAIN = 1000
 
 local isolated_cliffs = {} ---@type LuaEntity[]
+---@type fun(cliff: LuaEntity): boolean
+local remove_isolated_cliff
+---@type fun(cliff_to_rotate: LuaEntity, target: string|nil)
+local rotate_cliff
+local canonical_cliff_name
 
 -----------------------------
 -- Small helpers
@@ -26,17 +31,38 @@ local function use_map_gen_cliffs()
     return setting and setting.value == true
 end
 
---- Returns whether a cliff prototype name belongs to this mod.
+--- Returns whether a runtime prototype exists and is a cliff.
+--- @param cliff_name string|nil
+--- @return boolean
+local function cliff_prototype_exists(cliff_name)
+    if type(cliff_name) ~= "string" then return false end
+    return prototypes
+        and prototypes.entity
+        and prototypes.entity[cliff_name]
+        and prototypes.entity[cliff_name].type == "cliff"
+end
+
+--- Returns whether an item prototype exists.
+--- @param item_name string|nil
+--- @return boolean
+local function item_prototype_exists(item_name)
+    if type(item_name) ~= "string" then return false end
+    return prototypes and prototypes.item and prototypes.item[item_name] ~= nil
+end
+
+--- Returns whether a cliff prototype name belongs to this mod's supported set.
 --- By default, cliff-builder cliffs are named with the `cb-` prefix.
---- With "Use map_gen cliffs" enabled, the supported names are the vanilla cliff prototypes.
+--- With "Use map_gen cliffs" enabled, any cliff that has a matching cliff-builder item is supported.
 --- @param cliff_name string|nil
 --- @return boolean
 local function is_supported_cliff_name(cliff_name)
     if type(cliff_name) ~= "string" then return false end
+
+    local canonical_name = canonical_cliff_name and canonical_cliff_name(cliff_name) or cliff_name
     if use_map_gen_cliffs() then
-        return MAP_GEN_CLIFF_NAMES[cliff_name] == true
+        return cliff_prototype_exists(cliff_name) and item_prototype_exists(canonical_name)
     end
-    return starts_with(cliff_name, CLIFF_PREFIX)
+    return starts_with(canonical_name, CLIFF_PREFIX) and cliff_prototype_exists(cliff_name)
 end
 
 --- Returns whether an entity is a cliff managed by this mod.
@@ -68,17 +94,19 @@ local function convert_cliff_name_for_direction(cliff_name, direction)
     if direction == MIGRATION_TO_MAP_GEN then
         if not starts_with(cliff_name, CLIFF_PREFIX) then return nil end
 
-        local vanilla_name = string.sub(cliff_name, #CLIFF_PREFIX + 1)
-        if MAP_GEN_CLIFF_NAMES[vanilla_name] then
-            return vanilla_name
+        local map_gen_name = string.sub(cliff_name, #CLIFF_PREFIX + 1)
+        if cliff_prototype_exists(map_gen_name) and item_prototype_exists(map_gen_name) then
+            return map_gen_name
         end
 
         return nil
     end
 
     if direction == MIGRATION_TO_CB then
-        if not MAP_GEN_CLIFF_NAMES[cliff_name] then return nil end
-        return CLIFF_PREFIX .. cliff_name
+        local cb_name = CLIFF_PREFIX .. cliff_name
+        if cliff_prototype_exists(cliff_name) and cliff_prototype_exists(cb_name) and item_prototype_exists(cb_name) then
+            return cb_name
+        end
     end
 
     return nil
@@ -129,7 +157,7 @@ end
 --- @param cliff_entity_name string
 --- @return string marker_entity_name
 local function invisible_marker_name_for_cliff(cliff_entity_name)
-    return INVISIBLE_PREFIX .. cliff_entity_name
+    return INVISIBLE_PREFIX .. (canonical_cliff_name(cliff_entity_name) or cliff_entity_name)
 end
 
 --- Converts an invisible marker prototype name into the corresponding visible marker prototype name.
@@ -212,6 +240,206 @@ local function cardinal_reverse(direction)
     end
 end
 
+--- Returns the source/map-gen cliff name for either a map-gen cliff or its cb-* copy.
+--- @param cliff_name string|nil
+--- @return string|nil base_name
+local function base_cliff_name(cliff_name)
+    cliff_name = canonical_cliff_name(cliff_name)
+    if type(cliff_name) ~= "string" then return nil end
+    if starts_with(cliff_name, CLIFF_PREFIX) then
+        return string.sub(cliff_name, #CLIFF_PREFIX + 1)
+    end
+    return cliff_name
+end
+
+local MOUNTAIN_RANGE_CLIFFS = {
+    ["crater-cliff"] = true
+}
+
+--- Surface-tinted mountain variants are named <base>-<surface>, for example
+--- cb-crater-cliff-nauvis. Strip that suffix for gameplay logic.
+--- @param cliff_name string|nil
+--- @return string|nil canonical_name
+canonical_cliff_name = function(cliff_name)
+    if type(cliff_name) ~= "string" then return nil end
+
+    local cb_crater_base = CLIFF_PREFIX .. "crater-cliff"
+    if starts_with(cliff_name, cb_crater_base .. "-") then
+        return cb_crater_base
+    end
+    if starts_with(cliff_name, "crater-cliff-") then
+        return "crater-cliff"
+    end
+
+    return cliff_name
+end
+
+--- Returns a surface-specific visual mountain cliff prototype when one exists.
+--- @param cliff_name string
+--- @param surface LuaSurface|nil
+--- @return string cliff_name
+local function visual_cliff_name_for_surface(cliff_name, surface)
+    if not (surface and surface.valid) then return cliff_name end
+
+    local canonical_name = canonical_cliff_name(cliff_name) or cliff_name
+    if MOUNTAIN_RANGE_CLIFFS[base_cliff_name(canonical_name)] ~= true then return cliff_name end
+
+    local variant_name = canonical_name .. "-" .. surface.name
+    if cliff_prototype_exists(variant_name) then return variant_name end
+
+    return cliff_name
+end
+
+--- The eight visually distinct crater/mountain section sprites. Other crater
+--- orientations are duplicate aliases, so manual rotation cycles only these.
+local MOUNTAIN_RANGE_SECTION_ORIENTATIONS = {
+    "west-to-east",
+    "west-to-south",
+    "north-to-south",
+    "north-to-west",
+    "east-to-west",
+    "east-to-north",
+    "south-to-north",
+    "south-to-east"
+}
+
+local MOUNTAIN_RANGE_SECTION_ORIENTATION_INDEX = {}
+for i, orientation in pairs(MOUNTAIN_RANGE_SECTION_ORIENTATIONS) do
+    MOUNTAIN_RANGE_SECTION_ORIENTATION_INDEX[orientation] = i
+end
+
+--- Some cliff prototypes are useful as buildable mountain-range sections rather than
+--- normal chain cliffs. Their *_to_none orientations may reuse generic section art,
+--- so treat them as continuous pieces instead of relying on visible end-cap graphics.
+--- @param cliff LuaEntity|nil
+--- @return boolean
+local function uses_mountain_range_orientations(cliff)
+    if not (cliff and cliff.valid) then return false end
+    return MOUNTAIN_RANGE_CLIFFS[base_cliff_name(cliff.name)] == true
+end
+
+local function preserved_entity_orientation_for_cliff(cliff)
+    if uses_mountain_range_orientations(cliff) then
+        return cliff.orientation
+    end
+    return nil
+end
+
+local function one_neighbor_orientation(direction)
+    return "none-to-" .. direction
+end
+
+--- Maps placement direction to the mountain section sprite that follows that axis.
+local MOUNTAIN_RANGE_VECTOR_ORIENTATIONS = {
+    north = "south-to-north",
+    northeast = "south-to-east",
+    east = "west-to-east",
+    southeast = "west-to-south",
+    south = "north-to-south",
+    southwest = "north-to-west",
+    west = "east-to-west",
+    northwest = "east-to-north"
+}
+
+--- Returns the nearest cardinal direction for a position delta.
+--- Mountain-range placement uses cardinal axis alignment for automatic chain
+--- orientation; manual rotation still exposes diagonal sections.
+--- @param dx double
+--- @param dy double
+--- @return string|nil direction
+local function cardinal_direction_from_delta(dx, dy)
+    if dx == 0 and dy == 0 then return nil end
+
+    local abs_dx = math.abs(dx)
+    local abs_dy = math.abs(dy)
+
+    if abs_dx > abs_dy then
+        if dx > 0 then return "east" end
+        if dx < 0 then return "west" end
+    else
+        if dy > 0 then return "south" end
+        if dy < 0 then return "north" end
+    end
+
+    return nil
+end
+
+--- Returns the orientation used for a mountain range segment following a vector.
+--- @param from LuaEntity
+--- @param to LuaEntity
+--- @return string|nil orientation
+local function mountain_range_orientation_from_vector(from, to)
+    if not (from and from.valid and to and to.valid) then return nil end
+
+    local direction = cardinal_direction_from_delta(
+        to.position.x - from.position.x,
+        to.position.y - from.position.y
+    )
+
+    if not direction then return nil end
+    return MOUNTAIN_RANGE_VECTOR_ORIENTATIONS[direction]
+end
+
+--- Returns nearby mountain-range cliffs. This intentionally includes diagonal and
+--- slightly-wide spacing because crater section art is larger than normal cliffs.
+--- @param cliff LuaEntity
+--- @return LuaEntity[] neighbors
+local function get_mountain_range_neighbors(cliff)
+    if not (cliff and cliff.valid) then return {} end
+
+    local found = cliff.surface.find_entities_filtered {
+        type = "cliff",
+        position = cliff.position,
+        radius = 6.5
+    } or {}
+
+    local neighbors = {}
+    for _, entity in ipairs(found) do
+        if entity ~= cliff and uses_mountain_range_orientations(entity) then
+            table.insert(neighbors, entity)
+        end
+    end
+
+    table.sort(neighbors, function(a, b)
+        local adx = a.position.x - cliff.position.x
+        local ady = a.position.y - cliff.position.y
+        local bdx = b.position.x - cliff.position.x
+        local bdy = b.position.y - cliff.position.y
+        return adx * adx + ady * ady < bdx * bdx + bdy * bdy
+    end)
+
+    return neighbors
+end
+
+--- Orients a newly built mountain section from the nearest existing section.
+--- The nearest previous section is also rotated once to the current build axis so
+--- the first placed piece adopts the direction chosen by the second placement.
+--- No other nearby mountain sections are modified.
+--- @param cliff LuaEntity
+local function handle_mountain_range_cliff_built(cliff)
+    local neighbors = get_mountain_range_neighbors(cliff)
+
+    if #neighbors == 0 then
+        table.insert(isolated_cliffs, cliff)
+        return
+    end
+
+    remove_isolated_cliff(cliff)
+
+    local previous = neighbors[1]
+
+    local cliff_orientation = mountain_range_orientation_from_vector(cliff, previous)
+    if cliff_orientation then
+        rotate_cliff(cliff, cliff_orientation)
+    end
+
+    local previous_orientation = mountain_range_orientation_from_vector(previous, cliff)
+    if previous_orientation then
+        rotate_cliff(previous, previous_orientation)
+        remove_isolated_cliff(previous)
+    end
+end
+
 --- Returns the cardinal direction from `cliff` to `adjacent_cliff`
 --- based on their position delta.
 --- @param cliff LuaEntity
@@ -278,7 +506,7 @@ end
 --- Rotates a cliff until it matches `target`, or rotates once when `target` is nil.
 --- @param cliff_to_rotate LuaEntity
 --- @param target string|nil Orientation string such as `"north-to-south"` or `"none-to-east"`.
-local function rotate_cliff(cliff_to_rotate, target)
+rotate_cliff = function(cliff_to_rotate, target)
     if target then
         local attempts = 0
         while cliff_to_rotate.cliff_orientation ~= target and attempts < 20 do
@@ -410,8 +638,11 @@ local function get_cardinal_end_neighbors(cliff)
 
     for _, direction in ipairs(CARDINAL_DIRECTIONS) do
         local neighbor = get_neighbor(cliff, direction)
-        if neighbor and neighbor.valid and string.find(neighbor.cliff_orientation, "none") then
-            table.insert(out, neighbor)
+        if neighbor and neighbor.valid then
+            if not uses_mountain_range_orientations(neighbor)
+                and string.find(neighbor.cliff_orientation, "none") then
+                table.insert(out, neighbor)
+            end
         end
     end
     return out
@@ -489,7 +720,7 @@ end
 --- Removes a cliff from isolated tracking.
 --- @param cliff LuaEntity|nil
 --- @return boolean was_isolated True when the cliff was present in isolated tracking.
-local function remove_isolated_cliff(cliff)
+remove_isolated_cliff = function(cliff)
     if not cliff then return false end
 
     local found, index = helper_find_in_table(isolated_cliffs, cliff, true)
@@ -862,21 +1093,23 @@ local function try_spawn_cliff_from_marker(surface, position, force, marker_enti
 
     local cliff_name = cliff_name_from_visible_marker(marker_entity_name)
     if not cliff_name then return nil end
+    cliff_name = visual_cliff_name_for_surface(cliff_name, surface)
 
-    if surface.can_place_entity and not surface.can_place_entity {
-            name = cliff_name,
-            position = position,
-            force = force
-        } then
+    local entity_orientation = tags and tonumber(tags.cb_entity_orientation) or nil
+
+    local place_parameters = {
+        name = cliff_name,
+        position = position,
+        force = force,
+        orientation = entity_orientation
+    }
+
+    if surface.can_place_entity and not surface.can_place_entity(place_parameters) then
         if not destroy_cliffs_blocking_marker_position(surface, position) then
             return nil
         end
 
-        if not surface.can_place_entity {
-                name = cliff_name,
-                position = position,
-                force = force
-            } then
+        if not surface.can_place_entity(place_parameters) then
             return nil
         end
     end
@@ -885,6 +1118,7 @@ local function try_spawn_cliff_from_marker(surface, position, force, marker_enti
         name = cliff_name,
         position = position,
         force = force,
+        orientation = entity_orientation,
         raise_built = false
     }
     if not (cliff and cliff.valid) then return nil end
@@ -920,7 +1154,7 @@ local function handle_isolated_cliff_built(cliff)
         set_direction = "north"
     end
 
-    rotate_cliff(cliff, "none-to-" .. set_direction)
+    rotate_cliff(cliff, one_neighbor_orientation(set_direction))
 end
 
 --- Handles a cliff extending from one open end.
@@ -935,17 +1169,9 @@ local function handle_cliff_extension_built(cliff, adjacent_cliff)
 
     local adj_orientation = adjacent_cliff.cliff_orientation
     local adj_orientation_new = swap_orientation(remove_isolated_cliff(adjacent_cliff), adj_orientation, inv_cardinal)
+
     rotate_cliff(adjacent_cliff, adj_orientation_new)
-
-    local split_string = tokenize(adj_orientation, "-")
-    local orientation_new
-    if split_string[1] == "none" then
-        orientation_new = "none-to-" .. cardinal_dir
-    elseif split_string[3] == "none" then
-        orientation_new = cardinal_dir .. "-to-none"
-    end
-
-    rotate_cliff(cliff, orientation_new)
+    rotate_cliff(cliff, one_neighbor_orientation(cardinal_dir))
 end
 
 --- Handles a cliff joining two open ends.
@@ -988,13 +1214,54 @@ local function handle_cliff_join_built(cliff, adjacent_ends)
     end
 end
 
+--- Replaces a freshly built mountain-range cliff with the visual variant for the
+--- current surface, when one exists. This keeps Nauvis untinted while allowing
+--- Fulgora and future surfaces to use local color variants.
+--- @param cliff LuaEntity
+--- @return LuaEntity cliff
+local function replace_with_surface_visual_variant_if_needed(cliff)
+    if not (cliff and cliff.valid) then return cliff end
+
+    local desired_name = visual_cliff_name_for_surface(cliff.name, cliff.surface)
+    if desired_name == cliff.name then return cliff end
+
+    local surface = cliff.surface
+    local position = cliff.position
+    local force = cliff.force
+    local orientation = cliff.orientation
+    local cliff_orientation = cliff.cliff_orientation
+
+    cliff.destroy { do_cliff_correction = false }
+
+    local replacement = surface.create_entity {
+        name = desired_name,
+        position = position,
+        force = force,
+        orientation = orientation,
+        raise_built = false
+    }
+
+    if replacement and replacement.valid then
+        rotate_cliff(replacement, cliff_orientation)
+        return replacement
+    end
+
+    return cliff
+end
+
 --- Dispatcher for placement/orientation logic for a newly built live cliff.
 --- @param cliff LuaEntity
 local function handle_cliff_built(cliff)
     if not is_supported_cliff_entity(cliff) then return end
+    cliff = replace_with_surface_visual_variant_if_needed(cliff)
+    if not is_supported_cliff_entity(cliff) then return end
 
     destroy_overlapping_cliffs_for_cliff(cliff)
     spawn_invisible_marker_for_cliff(cliff)
+
+    if uses_mountain_range_orientations(cliff) then
+        return handle_mountain_range_cliff_built(cliff)
+    end
 
     local adjacent_ends = get_cardinal_end_neighbors(cliff)
 
@@ -1074,6 +1341,7 @@ local function migrate_cliff_entity_for_direction(cliff, direction)
     local position = { x = cliff.position.x, y = cliff.position.y }
     local force = cliff.force
     local orientation = cliff.cliff_orientation
+    local entity_orientation = preserved_entity_orientation_for_cliff(cliff)
 
     remove_invisible_marker_for_cliff(cliff)
     cliff.destroy { do_cliff_correction = false }
@@ -1082,6 +1350,7 @@ local function migrate_cliff_entity_for_direction(cliff, direction)
         name = new_name,
         position = position,
         force = force,
+        orientation = entity_orientation,
         raise_built = false
     }
 
@@ -1112,8 +1381,11 @@ local function migrate_invisible_marker_for_direction(marker, direction)
         radius = 1
     }
 
-    ---@type LuaEntity?
-    local migrated = existing and existing[1] or nil
+    --- @type LuaEntity?
+    local migrated = nil
+    if existing then
+        migrated = existing[1]
+    end
 
     if not (migrated and migrated.valid) then
         migrated = surface.create_entity {
@@ -1293,7 +1565,6 @@ end
 local function on_any_built(event)
     local entity = event.entity
     if not (entity and entity.valid) then return end
-
     if is_supported_cliff_entity(entity) then
         handle_cliff_built(entity)
         return
@@ -1366,7 +1637,31 @@ end
 -- Custom input handlers
 -----------------------------
 
+--- Rotates mountain-range cliff sections through their visually distinct variants.
+--- Normal cliffs continue to use the original flip behavior.
+--- @param cliff LuaEntity
+--- @return boolean handled
+local function rotate_mountain_range_section(cliff)
+    if not uses_mountain_range_orientations(cliff) then return false end
+
+    -- The crater prototype exposes the full normal cliff orientation set, but several
+    -- of those orientations are visual duplicates. Cycle only through the eight real
+    -- crater-section sprites so pressing rotate does not appear to get stuck.
+    local current_index = MOUNTAIN_RANGE_SECTION_ORIENTATION_INDEX[cliff.cliff_orientation]
+    local next_index = 1
+    if current_index then
+        next_index = current_index + 1
+        if next_index > #MOUNTAIN_RANGE_SECTION_ORIENTATIONS then
+            next_index = 1
+        end
+    end
+
+    rotate_cliff(cliff, MOUNTAIN_RANGE_SECTION_ORIENTATIONS[next_index])
+    return true
+end
+
 --- Flips the entire connected chain under the cursor or current selection.
+--- Mountain-range cliffs rotate one section instead of flipping a chain.
 --- @param event EventData.CustomInputEvent
 local function flip_cliff_event(event)
     local player = game.get_player(event.player_index)
@@ -1374,6 +1669,7 @@ local function flip_cliff_event(event)
 
     local selected = player.selected
     if selected and is_supported_cliff_entity(selected) then
+        if rotate_mountain_range_section(selected) then return end
         flip_chain({}, selected)
         return
     end
@@ -1390,13 +1686,16 @@ local function flip_cliff_event(event)
 
     for _, cliff in ipairs(cliffs) do
         if is_supported_cliff_entity(cliff) then
-            flip_chain({}, cliff)
+            if not rotate_mountain_range_section(cliff) then
+                flip_chain({}, cliff)
+            end
             break
         end
     end
 end
 
 --- Flips only the currently selected cliff entity.
+--- Mountain-range cliffs rotate through variants instead.
 --- @param event EventData.CustomInputEvent
 local function flip_cliff_selected_event(event)
     local player = game.get_player(event.player_index)
@@ -1407,6 +1706,8 @@ local function flip_cliff_selected_event(event)
 
     if is_supported_cliff_entity(entity) then
         local cliff = entity
+        if rotate_mountain_range_section(cliff) then return end
+
         local new = flip_orientation(cliff.cliff_orientation)
         rotate_cliff(cliff, new)
     end
@@ -1492,6 +1793,17 @@ local function rewrite_exported_cliff_entity(exported_entity, world_entity)
             exported_entity.tags.cb_missing_cliff = nil
             changed = true
         end
+
+        local entity_orientation = preserved_entity_orientation_for_cliff(cliff)
+        if entity_orientation ~= nil then
+            if exported_entity.tags.cb_entity_orientation ~= entity_orientation then
+                exported_entity.tags.cb_entity_orientation = entity_orientation
+                changed = true
+            end
+        elseif exported_entity.tags.cb_entity_orientation ~= nil then
+            exported_entity.tags.cb_entity_orientation = nil
+            changed = true
+        end
     else
         if exported_entity.tags.cb_missing_cliff ~= true then
             exported_entity.tags.cb_missing_cliff = true
@@ -1499,6 +1811,10 @@ local function rewrite_exported_cliff_entity(exported_entity, world_entity)
         end
         if exported_entity.tags.cb_cliff_orientation ~= nil then
             exported_entity.tags.cb_cliff_orientation = nil
+            changed = true
+        end
+        if exported_entity.tags.cb_entity_orientation ~= nil then
+            exported_entity.tags.cb_entity_orientation = nil
             changed = true
         end
     end
@@ -1531,7 +1847,6 @@ local function rewrite_exported_cliff_entities(exported_entities, mapping)
 
     return changed
 end
-
 
 --- Rewrites blueprint entity names so legacy/current entities match the active startup mode.
 --- This keeps old blueprints from placing compatibility entities that would restore the
@@ -1588,7 +1903,6 @@ end
 -----------------------------
 -- Event hooks
 -----------------------------
-
 
 script.on_configuration_changed(on_configuration_changed)
 
