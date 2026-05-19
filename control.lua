@@ -5,12 +5,7 @@ local VISIBLE_PREFIX = "visible-4x4-"
 local INVISIBLE_PREFIX = "invisible-4x4-"
 local MAXIMUM_CLIFF_CHAIN = 1000
 
-local isolated_cliffs = {} ---@type LuaEntity[]
----@type fun(cliff: LuaEntity): boolean
-local remove_isolated_cliff
----@type fun(cliff_to_rotate: LuaEntity, target: string|nil)
-local rotate_cliff
-local canonical_cliff_name
+local isolated_cliffs = {}
 
 -----------------------------
 -- Small helpers
@@ -21,7 +16,21 @@ local canonical_cliff_name
 --- @param prefix string Prefix to check for.
 --- @return boolean
 local function starts_with(str, prefix)
-    return type(str) == "string" and string.sub(str, 1, #prefix) == prefix
+    return type(str) == "string" and string.sub(str, 1, string.len(prefix)) == prefix
+end
+
+--- Removes `prefix` from `str` when present.
+--- @param str string|nil String to trim.
+--- @param prefix string Prefix to remove.
+--- @return string|nil suffix Remaining string after the prefix.
+local function remove_prefix(str, prefix)
+    if type(str) ~= "string"
+        or not starts_with(str, prefix)
+    then
+        return nil
+    end
+
+    return string.sub(str, string.len(prefix) + 1)
 end
 
 --- Returns whether the startup setting requests map_gen/vanilla cliff prototypes.
@@ -50,6 +59,29 @@ local function item_prototype_exists(item_name)
     return prototypes and prototypes.item and prototypes.item[item_name] ~= nil
 end
 
+--- Returns the canonical cliff prototype/item name used by gameplay logic.
+--- Surface-tinted mountain variants are normalized to their base cliff name.
+--- @param cliff_name string|nil Prototype name to normalize.
+--- @return string|nil canonical_name Canonical cliff name, or nil for non-string input.
+local function canonical_cliff_name(cliff_name)
+    if type(cliff_name) ~= "string" then
+        return nil
+    end
+
+    local base_names = {
+        CLIFF_PREFIX .. "crater-cliff",
+        "crater-cliff"
+    }
+
+    for _, base_name in ipairs(base_names) do
+        if remove_prefix(cliff_name, base_name .. "-") then
+            return base_name
+        end
+    end
+
+    return cliff_name
+end
+
 --- Returns whether a cliff prototype name belongs to this mod's supported set.
 --- By default, cliff-builder cliffs are named with the `cb-` prefix.
 --- With "Use map_gen cliffs" enabled, any cliff that has a matching cliff-builder item is supported.
@@ -58,7 +90,7 @@ end
 local function is_supported_cliff_name(cliff_name)
     if type(cliff_name) ~= "string" then return false end
 
-    local canonical_name = canonical_cliff_name and canonical_cliff_name(cliff_name) or cliff_name
+    local canonical_name = canonical_cliff_name(cliff_name) or cliff_name
     if use_map_gen_cliffs() then
         return cliff_prototype_exists(cliff_name) and item_prototype_exists(canonical_name)
     end
@@ -73,8 +105,6 @@ local function is_supported_cliff_entity(entity)
     return entity.type == "cliff" and is_supported_cliff_name(entity.name)
 end
 
-local cliff_name_from_visible_marker
-local visible_marker_name_from_invisible
 local MIGRATION_TO_MAP_GEN = "to-map-gen"
 local MIGRATION_TO_CB = "to-cb"
 
@@ -94,8 +124,8 @@ local function convert_cliff_name_for_direction(cliff_name, direction)
     if direction == MIGRATION_TO_MAP_GEN then
         if not starts_with(cliff_name, CLIFF_PREFIX) then return nil end
 
-        local map_gen_name = string.sub(cliff_name, #CLIFF_PREFIX + 1)
-        if cliff_prototype_exists(map_gen_name) and item_prototype_exists(map_gen_name) then
+        local map_gen_name = remove_prefix(cliff_name, CLIFF_PREFIX)
+        if map_gen_name and cliff_prototype_exists(map_gen_name) and item_prototype_exists(map_gen_name) then
             return map_gen_name
         end
 
@@ -118,10 +148,9 @@ end
 --- @param direction string One of MIGRATION_TO_MAP_GEN or MIGRATION_TO_CB.
 --- @return string|nil converted_marker_name
 local function convert_marker_name_for_direction(marker_name, marker_prefix, direction)
-    if not marker_name then return nil end
-    if not starts_with(marker_name, marker_prefix) then return nil end
+    local cliff_name = remove_prefix(marker_name, marker_prefix)
+    if not cliff_name then return nil end
 
-    local cliff_name = string.sub(marker_name, #marker_prefix + 1)
     local converted_cliff_name = convert_cliff_name_for_direction(cliff_name, direction)
     if converted_cliff_name then
         return marker_prefix .. converted_cliff_name
@@ -145,10 +174,10 @@ end
 --- Example: `"visible-4x4-cb-cliff"` -> `"cliff"` while map-gen mode is enabled.
 --- @param marker_name string
 --- @return string|nil cliff_entity_name
-cliff_name_from_visible_marker = function(marker_name)
-    if not starts_with(marker_name, VISIBLE_PREFIX) then return nil end
+local function cliff_name_from_visible_marker(marker_name)
+    local cliff_name = remove_prefix(marker_name, VISIBLE_PREFIX)
+    if not cliff_name then return nil end
 
-    local cliff_name = string.sub(marker_name, #VISIBLE_PREFIX + 1)
     return convert_cliff_name_for_direction(cliff_name, active_migration_direction()) or cliff_name
 end
 
@@ -164,9 +193,11 @@ end
 --- Example: `"invisible-4x4-cb-cliff"` -> `"visible-4x4-cb-cliff"`.
 --- @param marker_name string
 --- @return string|nil visible_marker_name
-visible_marker_name_from_invisible = function(marker_name)
-    if not starts_with(marker_name, INVISIBLE_PREFIX) then return nil end
-    return VISIBLE_PREFIX .. string.sub(marker_name, #INVISIBLE_PREFIX + 1)
+local function visible_marker_name_from_invisible(marker_name)
+    local suffix = remove_prefix(marker_name, INVISIBLE_PREFIX)
+    if not suffix then return nil end
+
+    return VISIBLE_PREFIX .. suffix
 end
 
 --- Returns whether an entity is a visible marker managed by this mod.
@@ -246,33 +277,12 @@ end
 local function base_cliff_name(cliff_name)
     cliff_name = canonical_cliff_name(cliff_name)
     if type(cliff_name) ~= "string" then return nil end
-    if starts_with(cliff_name, CLIFF_PREFIX) then
-        return string.sub(cliff_name, #CLIFF_PREFIX + 1)
-    end
-    return cliff_name
+    return remove_prefix(cliff_name, CLIFF_PREFIX) or cliff_name
 end
 
 local MOUNTAIN_RANGE_CLIFFS = {
     ["crater-cliff"] = true
 }
-
---- Surface-tinted mountain variants are named <base>-<surface>, for example
---- cb-crater-cliff-nauvis. Strip that suffix for gameplay logic.
---- @param cliff_name string|nil
---- @return string|nil canonical_name
-canonical_cliff_name = function(cliff_name)
-    if type(cliff_name) ~= "string" then return nil end
-
-    local cb_crater_base = CLIFF_PREFIX .. "crater-cliff"
-    if starts_with(cliff_name, cb_crater_base .. "-") then
-        return cb_crater_base
-    end
-    if starts_with(cliff_name, "crater-cliff-") then
-        return "crater-cliff"
-    end
-
-    return cliff_name
-end
 
 --- Returns a surface-specific visual mountain cliff prototype when one exists.
 --- @param cliff_name string
@@ -318,13 +328,22 @@ local function uses_mountain_range_orientations(cliff)
     return MOUNTAIN_RANGE_CLIFFS[base_cliff_name(cliff.name)] == true
 end
 
+--- Returns the entity orientation that must be preserved when recreating a cliff.
+--- Mountain-range sections use entity orientation for visual variants; normal cliffs do not.
+--- @param cliff LuaEntity|nil Cliff entity being replaced or migrated.
+--- @return RealOrientation|nil entity_orientation Orientation to pass to create_entity, if needed.
 local function preserved_entity_orientation_for_cliff(cliff)
+    if not (cliff and cliff.valid) then return nil end
+
     if uses_mountain_range_orientations(cliff) then
         return cliff.orientation
     end
     return nil
 end
 
+--- Returns the end-cap orientation that points toward one connected neighbor.
+--- @param direction string Cardinal direction of the neighbor.
+--- @return string orientation Cliff orientation string.
 local function one_neighbor_orientation(direction)
     return "none-to-" .. direction
 end
@@ -409,6 +428,42 @@ local function get_mountain_range_neighbors(cliff)
     end)
 
     return neighbors
+end
+
+
+-----------------------------
+-- Orientation utils used during placement
+-----------------------------
+
+local function rotate_cliff(cliff, target)
+    if not target then
+        cliff.rotate()
+        return
+    end
+
+    local attempts = 0
+
+    while cliff.cliff_orientation ~= target and attempts < 20 do
+        cliff.rotate()
+        attempts = attempts + 1
+    end
+end
+
+-----------------------------
+-- Isolated cliff tracking
+-----------------------------
+
+local function remove_isolated_cliff(cliff)
+    if not cliff then return false end
+
+    local found, index =
+        helper_find_in_table(isolated_cliffs, cliff, true)
+
+    if not found then return false end
+
+    table.remove(isolated_cliffs, index)
+
+    return true
 end
 
 --- Orients a newly built mountain section from the nearest existing section.
@@ -502,21 +557,6 @@ end
 -----------------------------
 -- Orientation utils
 -----------------------------
-
---- Rotates a cliff until it matches `target`, or rotates once when `target` is nil.
---- @param cliff_to_rotate LuaEntity
---- @param target string|nil Orientation string such as `"north-to-south"` or `"none-to-east"`.
-rotate_cliff = function(cliff_to_rotate, target)
-    if target then
-        local attempts = 0
-        while cliff_to_rotate.cliff_orientation ~= target and attempts < 20 do
-            cliff_to_rotate.rotate()
-            attempts = attempts + 1
-        end
-    else
-        cliff_to_rotate.rotate()
-    end
-end
 
 --- Flips a directed orientation string by swapping endpoints.
 --- Example: `"north-to-east"` -> `"east-to-north"`.
@@ -716,19 +756,6 @@ end
 -----------------------------
 -- Isolated cliff tracking
 -----------------------------
-
---- Removes a cliff from isolated tracking.
---- @param cliff LuaEntity|nil
---- @return boolean was_isolated True when the cliff was present in isolated tracking.
-remove_isolated_cliff = function(cliff)
-    if not cliff then return false end
-
-    local found, index = helper_find_in_table(isolated_cliffs, cliff, true)
-    if not found then return false end
-
-    table.remove(isolated_cliffs, index)
-    return true
-end
 
 --- Spawns the invisible marker companion entity for a cliff, if missing.
 --- @param cliff LuaEntity
@@ -1029,6 +1056,15 @@ local function remove_invisible_marker_for_cliff(cliff)
     end
 end
 
+--- Returns the craftable item name to refund for a cliff entity.
+--- Surface-specific visual variants are hidden entities whose item is the canonical base cliff.
+--- @param cliff LuaEntity|nil Cliff entity being refunded.
+--- @return string|nil item_name Item prototype name to insert into an inventory.
+local function item_name_for_cliff_entity(cliff)
+    if not (cliff and cliff.valid) then return nil end
+    return canonical_cliff_name(cliff.name) or cliff.name
+end
+
 --- Destroys cliff entities overlapping `cliff`, except for `cliff` itself.
 --- Used after a blueprint marker has produced the intended cliff so existing
 --- map cliffs are corrected without pre-clearing neighboring blueprint cliffs.
@@ -1307,9 +1343,9 @@ end
 --- @return LuaEntity|nil cliff
 local function find_source_cliff_for_invisible_marker(marker, direction)
     if not (marker and marker.valid) then return nil end
-    if not starts_with(marker.name, INVISIBLE_PREFIX) then return nil end
 
-    local source_cliff_name = string.sub(marker.name, #INVISIBLE_PREFIX + 1)
+    local source_cliff_name = remove_prefix(marker.name, INVISIBLE_PREFIX)
+    if not source_cliff_name then return nil end
     if not convert_cliff_name_for_direction(source_cliff_name, direction) then return nil end
 
     local cliffs = marker.surface.find_entities_filtered {
@@ -1620,10 +1656,11 @@ local function on_cliff_removed(event)
                 remove_invisible_marker_for_cliff(neighbor)
                 remove_isolated_cliff(neighbor)
 
-                if refund_inventory and refund_inventory.valid then
-                    refund_inventory.insert { name = neighbor.name, count = 1 }
-                elseif player then
-                    player.insert { name = neighbor.name, count = 1 }
+                local refund_name = item_name_for_cliff_entity(neighbor)
+                if refund_name and refund_inventory and refund_inventory.valid then
+                    refund_inventory.insert { name = refund_name, count = 1 }
+                elseif refund_name and player then
+                    player.insert { name = refund_name, count = 1 }
                 end
             end
         end

@@ -2,42 +2,26 @@ require("constants")
 
 local util = require("util")
 
-
 local use_map_gen_cliffs = settings.startup[USE_MAP_GEN_CLIFFS_SETTING]
     and settings.startup[USE_MAP_GEN_CLIFFS_SETTING].value == true
-
-data:extend({
-    {
-        type = "custom-input",
-        name = "cliff-flip",
-        key_sequence = "SHIFT + R",
-        include_selected_prototype = true,
-    },
-    {
-        type = "custom-input",
-        name = "cliff-flip-selected",
-        key_sequence = "R",
-        include_selected_prototype = true,
-    },
-    {
-        type = "custom-input",
-        name = "display-cliff-orientation",
-        key_sequence = "SHIFT + mouse-button-1",
-        consuming = "none"
-    },
-    {
-        type = "collision-layer",
-        name = "cb_cliff"
-    }
-})
 
 local technologies = data.raw["technology"] or {}
 local cliffs = data.raw["cliff"] or {}
 
+--- Localised strings are represented as either a plain string key or a parameterized table.
+--- This narrower alias keeps LuaLS from inferring unsupported primitive values from generic prototype tables.
+--- @alias CliffBuilderLocalisedString string|table
+
+--- Returns whether `str` starts with `prefix`.
+--- @param str string|nil String to test.
+--- @param prefix string Prefix to match.
+--- @return boolean
 local function starts_with(str, prefix)
     return type(str) == "string" and string.sub(str, 1, #prefix) == prefix
 end
 
+--- Adds a prototype or updates an existing one with the same type/name.
+--- @param prototype data.AnyPrototype Prototype definition to add or merge.
 local function extend_or_update(prototype)
     local prototypes = data.raw[prototype.type]
     local existing = prototypes and prototypes[prototype.name]
@@ -51,6 +35,9 @@ local function extend_or_update(prototype)
     end
 end
 
+--- Copies icon fields from a source prototype, falling back to the base cliff icon.
+--- @param target table Prototype receiving icon fields.
+--- @param source table Source prototype that may define `icon` or `icons`.
 local function copy_icon_fields(target, source)
     if source.icons then
         target.icons = table.deepcopy(source.icons)
@@ -64,13 +51,25 @@ local function copy_icon_fields(target, source)
     end
 end
 
+--- Returns the localised display name used by cliff items, recipes, and markers.
+--- @param cliff_name string Source cliff prototype name.
+--- @param source table Source cliff prototype.
+--- @return CliffBuilderLocalisedString localised_name Display name.
 local function cliff_display_name(cliff_name, source)
     if cliff_name == "crater-cliff" then
         return { "item-name.cb-mountains" }
     end
-    return source.localised_name or { "entity-name." .. cliff_name }
+
+    local source_localised_name = source.localised_name
+    if source_localised_name ~= nil then
+        return source_localised_name --[[@as CliffBuilderLocalisedString]]
+    end
+
+    return { "entity-name." .. cliff_name }
 end
 
+--- Returns compatibility buildability rules for temporary marker entities.
+--- @return table<string, boolean> rules Maraxsis-compatible buildability flags.
 local function temporary_marker_buildability_rules()
     return {
         water = true,
@@ -82,6 +81,9 @@ local function temporary_marker_buildability_rules()
     }
 end
 
+--- Returns a collision mask for buildable cliff/marker placement.
+--- @param source data.CliffPrototype|nil Source cliff prototype.
+--- @return data.CollisionMaskConnector collision_mask Collision mask including the custom cb_cliff layer.
 local function cliff_collision_mask(source)
     local mask = source and source.collision_mask and table.deepcopy(source.collision_mask) or {
         layers = {
@@ -106,13 +108,16 @@ local function cliff_collision_mask(source)
 end
 
 local surface_mountain_range_tints = {
-    nauvis = { r = 0.80, g = 0.68, b = 0.56, a = 1.0 },
-    fulgora = { r = 1.0, g = 0.76, b = 0.66, a = 1.0 },
-    gleba = { r = 0.70, g = 0.88, b = 0.60, a = 1.0 },
-    aquilo = { r = 0.85, g = 0.92, b = 1.0, a = 1.0 },
-    vulcanus = false
+    nauvis = { r = 0.863, g = 0.754, b = 0.647, a = 1 },
+    fulgora = { r = 1, g = 0.7, b = 0.7, a = 1 },
+    gleba = { r = 0.7, g = 1, b = 0.7, a = 1 },
+    aquilo = { r = 0.4, g = 0.8, b = 1, a = 1 },
+    vulcanus = { r = 1, g = 1, b = 1, a = 1 }
 }
 
+--- Recursively applies a tint to non-shadow sprite definitions.
+--- @param value table|nil Sprite or nested sprite table.
+--- @param tint Color Tint applied to visible sprites.
 local function tint_sprite_tree(value, tint)
     if type(value) ~= "table" then return end
 
@@ -127,10 +132,20 @@ local function tint_sprite_tree(value, tint)
     end
 end
 
+--- Returns the hidden visual variant name for a mountain-range cliff on a surface.
+--- @param base_name string Base cliff prototype name.
+--- @param surface_name string Surface name suffix.
+--- @return string variant_name Hidden variant prototype name.
 local function mountain_range_variant_name(base_name, surface_name)
     return base_name .. "-" .. surface_name
 end
 
+--- Creates one hidden surface-tinted mountain-range cliff variant.
+--- @param base_entity data.CliffPrototype Base cliff entity to copy.
+--- @param base_name string Base prototype/item name used for placement and mining.
+--- @param source_cliff_name string Original source cliff prototype name.
+--- @param surface_name string Surface name suffix for the hidden variant.
+--- @param tint Color|false Tint to apply, or false to skip the surface.
 local function create_surface_tinted_mountain_range_variant(base_entity, base_name, source_cliff_name, surface_name, tint)
     if source_cliff_name ~= "crater-cliff" then return end
     if not (base_entity and base_entity.type == "cliff") then return end
@@ -140,6 +155,7 @@ local function create_surface_tinted_mountain_range_variant(base_entity, base_na
     variant.name = mountain_range_variant_name(base_name, surface_name)
     variant.hidden = true
     variant.hidden_in_factoriopedia = true
+    variant.localised_name = base_entity.localised_name or cliff_display_name(source_cliff_name, base_entity)
     variant.placeable_by = { item = base_name, count = 1 }
     variant.minable = { mining_time = 1.0, result = base_name, count = 1 }
 
@@ -152,12 +168,20 @@ local function create_surface_tinted_mountain_range_variant(base_entity, base_na
     extend_or_update(variant)
 end
 
+--- Creates all configured hidden visual variants for a mountain-range cliff.
+--- @param base_entity data.CliffPrototype Base cliff entity to copy.
+--- @param base_name string Base prototype/item name used for placement and mining.
+--- @param source_cliff_name string Original source cliff prototype name.
 local function create_surface_tinted_mountain_range_variants(base_entity, base_name, source_cliff_name)
     for surface_name, tint in pairs(surface_mountain_range_tints) do
         create_surface_tinted_mountain_range_variant(base_entity, base_name, source_cliff_name, surface_name, tint)
     end
 end
 
+--- Configures a copied cliff prototype so it is buildable by this mod.
+--- @param entity data.CliffPrototype Cliff prototype to mutate.
+--- @param name string Prototype/item name to assign.
+--- @param hidden boolean|nil Whether the entity should be hidden compatibility content.
 local function configure_cliff_entity(entity, name, hidden)
     entity.name = name
     entity.hidden = hidden == true
@@ -176,6 +200,11 @@ local function configure_cliff_entity(entity, name, hidden)
     entity.collision_mask = cliff_collision_mask(entity)
 end
 
+--- Creates the item, recipe, and visible/invisible marker prototypes for a cliff.
+--- @param definition table Source cliff definition with `name`, `source`, and `ingredient`.
+--- @param name string Prototype/item name to create.
+--- @param hidden boolean|nil Whether created prototypes are hidden compatibility content.
+--- @param unlock_recipe boolean|nil Whether to unlock the recipe from landfill technology.
 local function create_cliff_supporting_prototypes(definition, name, hidden, unlock_recipe)
     local cliff = definition.name
     local source = definition.source
@@ -302,6 +331,8 @@ local function create_cliff_supporting_prototypes(definition, name, hidden, unlo
     extend_or_update(visible_item)
 end
 
+--- Creates the primary cb-* buildable cliff set for cliff-builder mode.
+--- @param definition table Source cliff definition with `name`, `source`, and `ingredient`.
 local function create_cliff_builder_set(definition)
     local cliff = definition.name
     local name = CLIFF_PREFIX .. cliff
@@ -315,6 +346,8 @@ local function create_cliff_builder_set(definition)
     create_cliff_supporting_prototypes(definition, name, false, true)
 end
 
+--- Creates hidden cb-* compatibility prototypes while map-gen mode is active.
+--- @param definition table Source cliff definition with `name`, `source`, and `ingredient`.
 local function create_compatibility_cliff_builder_set(definition)
     local cliff = definition.name
     local name = CLIFF_PREFIX .. cliff
@@ -335,9 +368,22 @@ local function create_compatibility_cliff_builder_set(definition)
     end
 end
 
+--- Hides the inactive source/map-gen cliff entry from Factoriopedia.
+--- The source prototype remains available for map generation and compatibility; only the encyclopedia entry is suppressed.
+--- @param definition table Source cliff definition with `name` and `source`.
+local function hide_source_cliff_factoriopedia_entry(definition)
+    local source = definition.source
+    if source then
+        source.hidden_in_factoriopedia = true
+    end
+end
+
+--- Creates hidden map-gen-name compatibility prototypes while cliff-builder mode is active.
+--- @param definition table Source cliff definition with `name`, `source`, and `ingredient`.
 local function create_compatibility_map_gen_set(definition)
     local cliff = definition.name
 
+    hide_source_cliff_factoriopedia_entry(definition)
     create_cliff_supporting_prototypes(definition, cliff, true, false)
 
     local visible_marker = data.raw["simple-entity-with-owner"]["visible-4x4-" .. cliff]
@@ -346,6 +392,8 @@ local function create_compatibility_map_gen_set(definition)
     end
 end
 
+--- Configures source cliff prototypes directly for map-gen cliff mode.
+--- @param definition table Source cliff definition with `name`, `source`, and `ingredient`.
 local function create_map_gen_set(definition)
     local cliff = definition.name
     local source = definition.source
@@ -355,6 +403,10 @@ local function create_map_gen_set(definition)
     create_cliff_supporting_prototypes(definition, cliff, false, true)
 end
 
+--- Returns whether a source cliff should receive buildable prototypes.
+--- @param name string Source cliff prototype name.
+--- @param cliff data.CliffPrototype Source cliff prototype.
+--- @return boolean supported True when the cliff should be supported.
 local function should_support_cliff(name, cliff)
     if starts_with(name, CLIFF_PREFIX) then return false end
     if cliff.hidden == true or cliff.hidden_in_factoriopedia == true then return false end
@@ -369,6 +421,9 @@ local regular_cliff_ingredients = {
     ["crater-cliff"] = "stone",
 }
 
+--- Returns the recipe ingredient used to craft a buildable cliff item.
+--- @param name string Source cliff prototype name.
+--- @return string ingredient Item prototype name used as the recipe ingredient.
 local function ingredient_for_cliff(name)
     -- Keep the vanilla/Space Age recipes aligned with the original mod.
     -- Mountains use stone so they stay generic and craftable on all surfaces.
