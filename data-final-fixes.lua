@@ -228,7 +228,7 @@ local function create_cliff_supporting_prototypes(definition, name, hidden, unlo
         hidden = hidden == true,
         enabled = false,
         energy_required = 1,
-        category = "crafting",
+        categories = { "crafting" },
         ingredients = {
             { type = "item", name = "landfill",            amount = 4 },
             { type = "item", name = definition.ingredient, amount = 10 }
@@ -258,6 +258,7 @@ local function create_cliff_supporting_prototypes(definition, name, hidden, unlo
         flags = { "placeable-neutral", "player-creation", "not-on-map" },
         selectable_in_game = false,
         allow_copy_paste = true,
+        placeable_by = { { item = name, count = 1 } },
         is_military_target = false,
         selection_priority = 40,
         hidden_in_factoriopedia = true,

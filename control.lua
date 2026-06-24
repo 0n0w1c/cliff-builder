@@ -189,6 +189,17 @@ local function invisible_marker_name_for_cliff(cliff_entity_name)
     return INVISIBLE_PREFIX .. (canonical_cliff_name(cliff_entity_name) or cliff_entity_name)
 end
 
+--- Converts either a visible or invisible marker prototype name into the active cliff prototype name.
+--- @param marker_name string
+--- @return string|nil cliff_entity_name
+local function cliff_name_from_marker(marker_name)
+    local cliff_name = remove_prefix(marker_name, VISIBLE_PREFIX)
+        or remove_prefix(marker_name, INVISIBLE_PREFIX)
+    if not cliff_name then return nil end
+
+    return convert_cliff_name_for_direction(cliff_name, active_migration_direction()) or cliff_name
+end
+
 --- Converts an invisible marker prototype name into the corresponding visible marker prototype name.
 --- Example: `"invisible-4x4-cb-cliff"` -> `"visible-4x4-cb-cliff"`.
 --- @param marker_name string
@@ -284,74 +295,124 @@ local MOUNTAIN_RANGE_CLIFFS = {
     ["crater-cliff"] = true
 }
 
--- Runtime cannot read data.raw, so these tile groups mirror the vanilla / Space Age
--- planet autoplace tile sets from data.raw. Mountain-range visual variants are chosen
--- from the actual 4x4 placement footprint instead of from the surface name, which
--- lets mixed-surface mods and imported planet tiles get the right mountain color.
 local PLANET_TILE_SETS = {
     nauvis = {
-        ["grass-1"] = true, ["grass-2"] = true, ["grass-3"] = true, ["grass-4"] = true,
-        ["dry-dirt"] = true, ["dirt-1"] = true, ["dirt-2"] = true, ["dirt-3"] = true,
-        ["dirt-4"] = true, ["dirt-5"] = true, ["dirt-6"] = true, ["dirt-7"] = true,
-        ["sand-1"] = true, ["sand-2"] = true, ["sand-3"] = true,
-        ["red-desert-0"] = true, ["red-desert-1"] = true, ["red-desert-2"] = true,
-        ["red-desert-3"] = true, ["water"] = true, ["deepwater"] = true
+        ["grass-1"] = true,
+        ["grass-2"] = true,
+        ["grass-3"] = true,
+        ["grass-4"] = true,
+        ["dry-dirt"] = true,
+        ["dirt-1"] = true,
+        ["dirt-2"] = true,
+        ["dirt-3"] = true,
+        ["dirt-4"] = true,
+        ["dirt-5"] = true,
+        ["dirt-6"] = true,
+        ["dirt-7"] = true,
+        ["sand-1"] = true,
+        ["sand-2"] = true,
+        ["sand-3"] = true,
+        ["red-desert-0"] = true,
+        ["red-desert-1"] = true,
+        ["red-desert-2"] = true,
+        ["red-desert-3"] = true,
+        ["water"] = true,
+        ["deepwater"] = true
     },
     fulgora = {
-        ["oil-ocean-shallow"] = true, ["oil-ocean-deep"] = true, ["fulgoran-rock"] = true,
-        ["fulgoran-dust"] = true, ["fulgoran-sand"] = true, ["fulgoran-dunes"] = true,
-        ["fulgoran-walls"] = true, ["fulgoran-paving"] = true, ["fulgoran-conduit"] = true,
+        ["oil-ocean-shallow"] = true,
+        ["oil-ocean-deep"] = true,
+        ["fulgoran-rock"] = true,
+        ["fulgoran-dust"] = true,
+        ["fulgoran-sand"] = true,
+        ["fulgoran-dunes"] = true,
+        ["fulgoran-walls"] = true,
+        ["fulgoran-paving"] = true,
+        ["fulgoran-conduit"] = true,
         ["fulgoran-machinery"] = true
     },
     gleba = {
-        ["natural-yumako-soil"] = true, ["natural-jellynut-soil"] = true,
-        ["wetland-yumako"] = true, ["wetland-jellynut"] = true, ["wetland-blue-slime"] = true,
-        ["wetland-light-green-slime"] = true, ["wetland-green-slime"] = true,
-        ["wetland-light-dead-skin"] = true, ["wetland-dead-skin"] = true,
-        ["wetland-pink-tentacle"] = true, ["wetland-red-tentacle"] = true,
-        ["gleba-deep-lake"] = true, ["lowland-brown-blubber"] = true,
-        ["lowland-olive-blubber"] = true, ["lowland-olive-blubber-2"] = true,
-        ["lowland-olive-blubber-3"] = true, ["lowland-pale-green"] = true,
-        ["lowland-cream-cauliflower"] = true, ["lowland-cream-cauliflower-2"] = true,
-        ["lowland-dead-skin"] = true, ["lowland-dead-skin-2"] = true, ["lowland-cream-red"] = true,
-        ["lowland-red-vein"] = true, ["lowland-red-vein-2"] = true, ["lowland-red-vein-3"] = true,
-        ["lowland-red-vein-4"] = true, ["lowland-red-vein-dead"] = true,
-        ["lowland-red-infection"] = true, ["midland-turquoise-bark"] = true,
-        ["midland-turquoise-bark-2"] = true, ["midland-cracked-lichen"] = true,
-        ["midland-cracked-lichen-dull"] = true, ["midland-cracked-lichen-dark"] = true,
-        ["midland-yellow-crust"] = true, ["midland-yellow-crust-2"] = true,
-        ["midland-yellow-crust-3"] = true, ["midland-yellow-crust-4"] = true,
-        ["highland-dark-rock"] = true, ["highland-dark-rock-2"] = true,
-        ["highland-yellow-rock"] = true, ["pit-rock"] = true
+        ["natural-yumako-soil"] = true,
+        ["natural-jellynut-soil"] = true,
+        ["wetland-yumako"] = true,
+        ["wetland-jellynut"] = true,
+        ["wetland-blue-slime"] = true,
+        ["wetland-light-green-slime"] = true,
+        ["wetland-green-slime"] = true,
+        ["wetland-light-dead-skin"] = true,
+        ["wetland-dead-skin"] = true,
+        ["wetland-pink-tentacle"] = true,
+        ["wetland-red-tentacle"] = true,
+        ["gleba-deep-lake"] = true,
+        ["lowland-brown-blubber"] = true,
+        ["lowland-olive-blubber"] = true,
+        ["lowland-olive-blubber-2"] = true,
+        ["lowland-olive-blubber-3"] = true,
+        ["lowland-pale-green"] = true,
+        ["lowland-cream-cauliflower"] = true,
+        ["lowland-cream-cauliflower-2"] = true,
+        ["lowland-dead-skin"] = true,
+        ["lowland-dead-skin-2"] = true,
+        ["lowland-cream-red"] = true,
+        ["lowland-red-vein"] = true,
+        ["lowland-red-vein-2"] = true,
+        ["lowland-red-vein-3"] = true,
+        ["lowland-red-vein-4"] = true,
+        ["lowland-red-vein-dead"] = true,
+        ["lowland-red-infection"] = true,
+        ["midland-turquoise-bark"] = true,
+        ["midland-turquoise-bark-2"] = true,
+        ["midland-cracked-lichen"] = true,
+        ["midland-cracked-lichen-dull"] = true,
+        ["midland-cracked-lichen-dark"] = true,
+        ["midland-yellow-crust"] = true,
+        ["midland-yellow-crust-2"] = true,
+        ["midland-yellow-crust-3"] = true,
+        ["midland-yellow-crust-4"] = true,
+        ["highland-dark-rock"] = true,
+        ["highland-dark-rock-2"] = true,
+        ["highland-yellow-rock"] = true,
+        ["pit-rock"] = true
     },
     aquilo = {
-        ["snow-flat"] = true, ["snow-crests"] = true, ["snow-lumpy"] = true, ["snow-patchy"] = true,
-        ["ice-rough"] = true, ["ice-smooth"] = true, ["brash-ice"] = true,
-        ["ammoniacal-ocean"] = true, ["ammoniacal-ocean-2"] = true
+        ["snow-flat"] = true,
+        ["snow-crests"] = true,
+        ["snow-lumpy"] = true,
+        ["snow-patchy"] = true,
+        ["ice-rough"] = true,
+        ["ice-smooth"] = true,
+        ["brash-ice"] = true,
+        ["ammoniacal-ocean"] = true,
+        ["ammoniacal-ocean-2"] = true
     },
     vulcanus = {
-        ["volcanic-soil-dark"] = true, ["volcanic-soil-light"] = true, ["volcanic-ash-soil"] = true,
-        ["volcanic-ash-flats"] = true, ["volcanic-ash-light"] = true, ["volcanic-ash-dark"] = true,
-        ["volcanic-cracks"] = true, ["volcanic-cracks-warm"] = true, ["volcanic-folds"] = true,
-        ["volcanic-folds-flat"] = true, ["lava"] = true, ["lava-hot"] = true,
-        ["volcanic-folds-warm"] = true, ["volcanic-pumice-stones"] = true,
-        ["volcanic-cracks-hot"] = true, ["volcanic-jagged-ground"] = true,
-        ["volcanic-smooth-stone"] = true, ["volcanic-smooth-stone-warm"] = true,
+        ["volcanic-soil-dark"] = true,
+        ["volcanic-soil-light"] = true,
+        ["volcanic-ash-soil"] = true,
+        ["volcanic-ash-flats"] = true,
+        ["volcanic-ash-light"] = true,
+        ["volcanic-ash-dark"] = true,
+        ["volcanic-cracks"] = true,
+        ["volcanic-cracks-warm"] = true,
+        ["volcanic-folds"] = true,
+        ["volcanic-folds-flat"] = true,
+        ["lava"] = true,
+        ["lava-hot"] = true,
+        ["volcanic-folds-warm"] = true,
+        ["volcanic-pumice-stones"] = true,
+        ["volcanic-cracks-hot"] = true,
+        ["volcanic-jagged-ground"] = true,
+        ["volcanic-smooth-stone"] = true,
+        ["volcanic-smooth-stone-warm"] = true,
         ["volcanic-ash-cracks"] = true
     }
 }
 
 local NON_NAUVIS_TILE_PRIORITY = { "gleba", "aquilo", "vulcanus", "fulgora" }
 
--- Vulcanus uses a white tint, which leaves the mountain sprites visually untinted.
--- Use it as the neutral fallback when no tile in the 4x4 footprint is recognized.
 local DEFAULT_UNTINTED_MOUNTAIN_PLANET = "vulcanus"
 
 --- Returns the planet tile set found under the 4x4 mountain placement footprint.
---- Non-Nauvis planet tiles take precedence over Nauvis tiles, so mixed Nauvis/Gleba
---- footprints choose the non-Nauvis mountain. Nauvis is returned only when every tile
---- in the footprint is recognized as Nauvis. If no decisive known tile set is found,
---- returns nil so the caller can use the untinted fallback.
 --- @param surface LuaSurface|nil
 --- @param position MapPosition|nil
 --- @return string|nil planet_name
@@ -585,9 +646,6 @@ local function remove_isolated_cliff(cliff)
 end
 
 --- Orients a newly built mountain section from the nearest existing section.
---- The nearest previous section is also rotated once to the current build axis so
---- the first placed piece adopts the direction chosen by the second placement.
---- No other nearby mountain sections are modified.
 --- @param cliff LuaEntity
 local function handle_mountain_range_cliff_built(cliff)
     local neighbors = get_mountain_range_neighbors(cliff)
@@ -913,7 +971,6 @@ local function orientation_has_direction(orientation, direction)
 end
 
 --- Returns whether two cliffs are actually connected to each other.
---- They must be cardinal neighbors and each orientation must point toward the other.
 --- @param cliff LuaEntity
 --- @param neighbor LuaEntity
 --- @return boolean
@@ -950,8 +1007,6 @@ local function get_cardinal_chain_neighbors(cliff)
 end
 
 --- Returns a stable key for a cliff during one traversal.
---- Do not use unit_number here: cliffs do not reliably have one.
---- Do not use the LuaEntity itself as a table key either; use immutable scalar values.
 --- @param cliff LuaEntity
 --- @return string|nil key
 local function cliff_traversal_key(cliff)
@@ -980,8 +1035,6 @@ local function flip_chain(flip_record, cliff)
             if key and not flip_record[key] then
                 flip_record[key] = true
 
-                -- Capture neighbors before rotating. After the current cliff is flipped,
-                -- the old orientation no longer describes the chain connectivity to walk.
                 local neighbors = get_cardinal_chain_neighbors(current)
 
                 local new = flip_orientation(current.cliff_orientation)
@@ -1175,7 +1228,6 @@ local function remove_invisible_marker_for_cliff(cliff)
 end
 
 --- Returns the craftable item name to refund for a cliff entity.
---- Surface-specific visual variants are hidden entities whose item is the canonical base cliff.
 --- @param cliff LuaEntity|nil Cliff entity being refunded.
 --- @return string|nil item_name Item prototype name to insert into an inventory.
 local function item_name_for_cliff_entity(cliff)
@@ -1234,18 +1286,18 @@ local function destroy_cliffs_blocking_marker_position(surface, position)
     return removed_any
 end
 
---- Attempts to spawn a real cliff from a visible marker entity name.
+--- Attempts to spawn a real cliff from a temporary marker entity name.
 --- Any provided blueprint orientation tag is applied to the spawned cliff.
 --- @param surface LuaSurface
 --- @param position MapPosition
 --- @param force LuaForce|string|int
---- @param marker_entity_name string Visible marker entity prototype name.
+--- @param marker_entity_name string Visible or invisible marker entity prototype name.
 --- @param tags Tags|nil Blueprint/entity tags.
 --- @return LuaEntity|nil cliff
 local function try_spawn_cliff_from_marker(surface, position, force, marker_entity_name, tags)
     if not (surface and surface.valid and position and marker_entity_name) then return nil end
 
-    local cliff_name = cliff_name_from_visible_marker(marker_entity_name)
+    local cliff_name = cliff_name_from_marker(marker_entity_name)
     if not cliff_name then return nil end
     cliff_name = visual_cliff_name_for_tiles(cliff_name, surface, position)
 
@@ -1432,9 +1484,6 @@ local function handle_cliff_built(cliff)
 end
 
 --- Destroys invisible marker companions occupying the exact marker probe area.
---- Existing cliffs are intentionally not pre-cleared here. Overlapping cliffs are
---- removed only when they block the intended cliff or after the intended cliff exists,
---- so blueprint-restored neighbors are not deleted before their own marker events run.
 --- @param surface LuaSurface
 --- @param position MapPosition
 local function clear_invisible_markers_at_position(surface, position)
@@ -1514,7 +1563,6 @@ local function migrate_cliff_entity_for_direction(cliff, direction)
 end
 
 --- Replaces one invisible marker with its equivalent prototype in the target startup-setting family.
---- If a matching marker already exists, the old marker is just removed.
 --- @param marker LuaEntity
 --- @param direction string One of MIGRATION_TO_MAP_GEN or MIGRATION_TO_CB.
 --- @return LuaEntity|nil migrated_marker
@@ -1559,7 +1607,6 @@ local function migrate_invisible_marker_for_direction(marker, direction)
 end
 
 --- Migrates one invisible-marker/cliff pair to the target startup-setting family.
---- The invisible marker is the ownership proof, so natural map-gen cliffs are ignored.
 --- @param marker LuaEntity
 --- @param direction string One of MIGRATION_TO_MAP_GEN or MIGRATION_TO_CB.
 --- @return boolean migrated
@@ -1574,8 +1621,6 @@ local function migrate_marked_cliff_pair_for_direction(marker, direction)
     local migrated_cliff = migrate_cliff_entity_for_direction(cliff, direction)
     if not (migrated_cliff and migrated_cliff.valid) then return false end
 
-    -- Prefer creating the companion marker from the migrated cliff so marker naming stays
-    -- centralized in `invisible_marker_name_for_cliff`.
     spawn_invisible_marker_for_cliff(migrated_cliff)
 
     if marker.valid then
@@ -1618,7 +1663,6 @@ local function get_inventory_safe(owner, inventory_type)
 end
 
 --- Replaces item stacks in one inventory using the supplied name mapper.
---- Quality is preserved when present. If insertion somehow cannot fit, the remainder is restored as the old item.
 --- @param inventory LuaInventory|nil
 --- @param map_item_name fun(item_name:string|nil):string|nil
 --- @return uint migrated_count
@@ -1626,27 +1670,51 @@ local function migrate_inventory_items(inventory, map_item_name)
     if not (inventory and inventory.valid) then return 0 end
 
     local migrated_count = 0
-    local contents = inventory.get_contents()
 
-    for _, stack in ipairs(contents) do
-        local old_name = stack.name
-        local new_name = map_item_name(old_name)
+    -- Snapshot first, because we mutate the inventory while migrating.
+    local stacks_to_migrate = {}
 
-        if new_name and new_name ~= old_name then
-            local count = stack.count or 0
-            if count > 0 then
-                local quality = stack.quality
-                local removed = inventory.remove { name = old_name, count = count, quality = quality }
+    for i = 1, #inventory do
+        local item_stack = inventory[i]
+        if item_stack and item_stack.valid_for_read then
+            local old_name = item_stack.name
+            local new_name = map_item_name(old_name)
 
-                if removed > 0 then
-                    local inserted = inventory.insert { name = new_name, count = removed, quality = quality }
-                    migrated_count = migrated_count + inserted
+            if new_name and new_name ~= old_name then
+                local quality = item_stack.quality
+                stacks_to_migrate[#stacks_to_migrate + 1] = {
+                    name = old_name,
+                    new_name = new_name,
+                    count = item_stack.count,
+                    quality = quality and quality.name or nil
+                }
+            end
+        end
+    end
 
-                    local remainder = removed - inserted
-                    if remainder > 0 then
-                        inventory.insert { name = old_name, count = remainder, quality = quality }
-                    end
-                end
+    for _, stack in pairs(stacks_to_migrate) do
+        local removed = inventory.remove {
+            name = stack.name,
+            count = stack.count,
+            quality = stack.quality
+        }
+
+        if removed > 0 then
+            local inserted = inventory.insert {
+                name = stack.new_name,
+                count = removed,
+                quality = stack.quality
+            }
+
+            migrated_count = migrated_count + inserted
+
+            local remainder = removed - inserted
+            if remainder > 0 then
+                inventory.insert {
+                    name = stack.name,
+                    count = remainder,
+                    quality = stack.quality
+                }
             end
         end
     end
@@ -1658,7 +1726,8 @@ end
 --- @param map_item_name fun(item_name:string|nil):string|nil
 local function migrate_player_items(map_item_name)
     for _, player in pairs(game.players) do
-        migrate_inventory_items(player.get_main_inventory(), map_item_name)
+        local main = get_inventory_safe(player, defines.inventory.character_main)
+        migrate_inventory_items(main, map_item_name)
 
         local trash = get_inventory_safe(player, defines.inventory.character_trash)
         migrate_inventory_items(trash, map_item_name)
@@ -1684,8 +1753,6 @@ local function migrate_chest_items(map_item_name)
 end
 
 --- Migrates item stacks to match the current startup setting.
---- Map-gen mode converts cb-* items to vanilla/map-gen items.
---- Cliff-builder mode converts vanilla/map-gen items to cb-* items.
 local function migrate_all_items_for_current_setting()
     local direction = active_migration_direction()
 
@@ -1709,8 +1776,6 @@ end
 -----------------------------
 
 --- Unified built-entity dispatcher for real cliffs and visible markers.
---- Visible marker ghosts are ignored until they become real entities.
---- Handles player builds, robot builds, and script-raised builds/revives.
 --- @param event EventData.on_built_entity
 ---| EventData.on_robot_built_entity
 ---| EventData.script_raised_built
@@ -1730,11 +1795,12 @@ local function on_any_built(event)
         end
     end
 
-    if is_supported_visible_marker_entity(entity) then
+    if is_supported_visible_marker_entity(entity) or is_supported_invisible_marker_entity(entity) then
         local surface = entity.surface
         local position = entity.position
         local force = entity.force
         local marker_name = entity.name
+        local was_visible_marker = is_supported_visible_marker_entity(entity)
 
         local tags = event.tags
         if tags and tags.cb_missing_cliff then
@@ -1744,7 +1810,9 @@ local function on_any_built(event)
 
         entity.destroy()
 
-        clear_invisible_markers_at_position(surface, position)
+        if was_visible_marker then
+            clear_invisible_markers_at_position(surface, position)
+        end
 
         local spawned = try_spawn_cliff_from_marker(surface, position, force, marker_name, tags)
         if spawned then
@@ -1798,9 +1866,6 @@ end
 local function rotate_mountain_range_section(cliff)
     if not uses_mountain_range_orientations(cliff) then return false end
 
-    -- The crater prototype exposes the full normal cliff orientation set, but several
-    -- of those orientations are visual duplicates. Cycle only through the eight real
-    -- crater-section sprites so pressing rotate does not appear to get stuck.
     local current_index = MOUNTAIN_RANGE_SECTION_ORIENTATION_INDEX[cliff.cliff_orientation]
     local next_index = 1
     if current_index then
@@ -1885,7 +1950,7 @@ local function display_selected_cliff_orientation(event)
 end
 
 -----------------------------
--- Blueprint tagging
+-- Blueprint rewriting
 -----------------------------
 
 --- Finds a cliff entity at the given position probe.
@@ -1906,151 +1971,202 @@ local function find_cliff_at(surface, position)
     return nil
 end
 
---- Builds a lookup from blueprint entity_number to exported_entities index.
---- @param exported_entities BlueprintEntity[]
---- @return table<any, integer> exported_by_number
-local function build_exported_entity_index(exported_entities)
-    local exported_by_number = {}
+--- Returns a field from an object without letting unsupported fields abort blueprint setup.
+--- @param object any
+--- @param field string
+--- @return any value
+local function safe_get_field(object, field)
+    local ok, value = pcall(function() return object[field] end)
+    if ok then return value end
+    return nil
+end
 
-    for i, exported_entity in ipairs(exported_entities) do
-        if exported_entity.entity_number then
-            exported_by_number[exported_entity.entity_number] = i
+--- Builds a minimal BlueprintEntity snapshot from a source entity.
+--- @param source_entity LuaEntity
+--- @param blueprint_index uint
+--- @return BlueprintEntity blueprint_entity
+local function snapshot_blueprint_entity(source_entity, blueprint_index)
+    local entity = {
+        entity_number = blueprint_index,
+        name = source_entity.name,
+        position = {
+            x = source_entity.position.x,
+            y = source_entity.position.y
+        }
+    }
+
+    local direction = safe_get_field(source_entity, "direction")
+    if direction ~= nil then
+        entity.direction = direction
+    end
+
+    local mirror = safe_get_field(source_entity, "mirror")
+    if mirror ~= nil then
+        entity.mirror = mirror
+    else
+        local mirroring = safe_get_field(source_entity, "mirroring")
+        if mirroring ~= nil then
+            entity.mirror = mirroring
         end
     end
 
-    return exported_by_number
+    local quality = safe_get_field(source_entity, "quality")
+    if quality ~= nil then
+        if type(quality) == "string" then
+            entity.quality = quality
+        else
+            local quality_name = safe_get_field(quality, "name")
+            if type(quality_name) == "string" then
+                entity.quality = quality_name
+            end
+        end
+    end
+
+    return entity
 end
 
---- Rewrites one exported invisible-marker entity into its visible marker form
---- and updates cliff-orientation tags from the current world state.
---- @param exported_entity BlueprintEntity
---- @param world_entity LuaEntity
---- @return boolean changed
-local function rewrite_exported_cliff_entity(exported_entity, world_entity)
-    local changed = false
-    local cliff = find_cliff_at(world_entity.surface, world_entity.position)
+--- Returns the mapping table from an on_player_setup_blueprint event.
+--- Factorio 2.1 exposes this as a LuaLazyLoadedValue.
+--- @param event EventData.on_player_setup_blueprint
+--- @return table<any, LuaEntity>|nil mapping
+local function setup_blueprint_mapping(event)
+    local mapping = event.mapping
+    if not mapping then return nil end
 
-    local visible_name = visible_marker_name_from_invisible(world_entity.name)
-    if visible_name and exported_entity.name ~= visible_name then
-        exported_entity.name = visible_name
+    if type(mapping) == "table" then
+        return mapping
+    end
+
+    local get_mapping = mapping["get"]
+    if type(get_mapping) ~= "function" then return nil end
+
+    local ok, loaded = pcall(get_mapping)
+    if ok and type(loaded) == "table" then
+        return loaded
+    end
+
+    return nil
+end
+
+--- Returns the writable blueprint-like object from an on_player_setup_blueprint event.
+--- @param event EventData.on_player_setup_blueprint
+--- @return LuaItemStack|LuaRecord|nil blueprint
+local function writable_blueprint_from_setup_event(event)
+    local target = event.stack or event.record
+    if target then return target end
+    return nil
+end
+
+--- Applies cliff blueprint export rewriting to a source-entity snapshot.
+--- @param blueprint_entity BlueprintEntity
+--- @param source_entity LuaEntity
+--- @return boolean changed
+local function rewrite_blueprint_snapshot_for_cliff(blueprint_entity, source_entity)
+    if not (source_entity and source_entity.valid and starts_with(source_entity.name, INVISIBLE_PREFIX)) then
+        return false
+    end
+
+    local changed = false
+    local visible_name = visible_marker_name_from_invisible(source_entity.name)
+    if visible_name and blueprint_entity.name ~= visible_name then
+        blueprint_entity.name = visible_name
         changed = true
     end
 
-    exported_entity.tags = exported_entity.tags or {}
+    blueprint_entity.tags = blueprint_entity.tags or {}
+    local cliff = find_cliff_at(source_entity.surface, source_entity.position)
 
     if cliff then
-        if exported_entity.tags.cb_cliff_orientation ~= cliff.cliff_orientation then
-            exported_entity.tags.cb_cliff_orientation = cliff.cliff_orientation
-            changed = true
-        end
-        if exported_entity.tags.cb_missing_cliff ~= nil then
-            exported_entity.tags.cb_missing_cliff = nil
+        if blueprint_entity.tags.cb_cliff_orientation ~= cliff.cliff_orientation then
+            blueprint_entity.tags.cb_cliff_orientation = cliff.cliff_orientation
             changed = true
         end
 
         local entity_orientation = preserved_entity_orientation_for_cliff(cliff)
         if entity_orientation ~= nil then
-            if exported_entity.tags.cb_entity_orientation ~= entity_orientation then
-                exported_entity.tags.cb_entity_orientation = entity_orientation
+            if blueprint_entity.tags.cb_entity_orientation ~= entity_orientation then
+                blueprint_entity.tags.cb_entity_orientation = entity_orientation
                 changed = true
             end
-        elseif exported_entity.tags.cb_entity_orientation ~= nil then
-            exported_entity.tags.cb_entity_orientation = nil
-            changed = true
         end
     else
-        if exported_entity.tags.cb_missing_cliff ~= true then
-            exported_entity.tags.cb_missing_cliff = true
-            changed = true
-        end
-        if exported_entity.tags.cb_cliff_orientation ~= nil then
-            exported_entity.tags.cb_cliff_orientation = nil
-            changed = true
-        end
-        if exported_entity.tags.cb_entity_orientation ~= nil then
-            exported_entity.tags.cb_entity_orientation = nil
-            changed = true
-        end
-    end
-
-    return changed
-end
-
---- Rewrites exported marker entities so invisible markers become visible markers
---- and carry cliff-orientation tags for blueprint/copy-paste export.
---- @param exported_entities BlueprintEntity[]
---- @param mapping table<any, LuaEntity> entity_number -> world entity
---- @return boolean changed
-local function rewrite_exported_cliff_entities(exported_entities, mapping)
-    if not (exported_entities and mapping) then return false end
-
-    local exported_by_number = build_exported_entity_index(exported_entities)
-    local changed = false
-
-    for entity_number, world_entity in pairs(mapping) do
-        if world_entity and world_entity.valid and starts_with(world_entity.name, INVISIBLE_PREFIX) then
-            local index = exported_by_number[entity_number]
-            if index then
-                local exported_entity = exported_entities[index]
-                if rewrite_exported_cliff_entity(exported_entity, world_entity) then
-                    changed = true
-                end
-            end
-        end
+        blueprint_entity.tags.cb_missing_cliff = true
+        changed = true
     end
 
     return changed
 end
 
 --- Rewrites blueprint entity names so legacy/current entities match the active startup mode.
---- This keeps old blueprints from placing compatibility entities that would restore the
---- inactive cliff prototype family.
---- @param exported_entities BlueprintEntity[]
+--- @param blueprint_entity BlueprintEntity
 --- @return boolean changed
-local function normalize_exported_entity_names_for_active_mode(exported_entities)
-    if not exported_entities then return false end
+local function normalize_blueprint_snapshot_name_for_active_mode(blueprint_entity)
+    local new_name = convert_item_name_for_direction(blueprint_entity.name, active_migration_direction())
+    if new_name and blueprint_entity.name ~= new_name then
+        blueprint_entity.name = new_name
+        return true
+    end
 
+    return false
+end
+
+--- Builds the replacement blueprint entity list from setup mapping.
+--- @param mapping table<any, LuaEntity> blueprint entity_number -> source entity
+--- @return BlueprintEntity[] entities
+--- @return boolean changed
+local function build_setup_blueprint_entities(mapping)
+    local entities = {}
     local changed = false
-    local direction = active_migration_direction()
 
-    for _, exported_entity in ipairs(exported_entities) do
-        local new_name = convert_item_name_for_direction(exported_entity.name, direction)
-        if new_name and exported_entity.name ~= new_name then
-            exported_entity.name = new_name
-            changed = true
+    for blueprint_index, source_entity in pairs(mapping) do
+        if source_entity and source_entity.valid then
+            local blueprint_entity = snapshot_blueprint_entity(source_entity, blueprint_index)
+
+            if rewrite_blueprint_snapshot_for_cliff(blueprint_entity, source_entity) then
+                changed = true
+            end
+
+            if normalize_blueprint_snapshot_name_for_active_mode(blueprint_entity) then
+                changed = true
+            end
+
+            entities[#entities + 1] = blueprint_entity
         end
     end
 
-    return changed
+    table.sort(entities, function(a, b)
+        return (a.entity_number or 0) < (b.entity_number or 0)
+    end)
+
+    return entities, changed
+end
+
+--- Writes the replacement BlueprintEntity list back to a LuaRecord/LuaItemStack blueprint.
+--- @param blueprint LuaRecord|LuaItemStack
+--- @param entities BlueprintEntity[]
+--- @return boolean wrote
+local function set_blueprint_entities_safe(blueprint, entities)
+    if not (blueprint and entities) then return false end
+
+    local set_entities = blueprint["set_blueprint_entities"]
+    if type(set_entities) ~= "function" then return false end
+
+    local ok = pcall(set_entities, entities)
+    return ok == true
 end
 
 --- Handles both normal blueprint setup and copy/paste-style temporary blueprint setup.
 --- @param event EventData.on_player_setup_blueprint
 local function on_player_setup_blueprint(event)
-    if not event.mapping then return end
+    local blueprint = writable_blueprint_from_setup_event(event)
+    if not blueprint then return end
 
-    local stack = event.stack
-    if not (stack and stack.valid_for_read and stack.is_blueprint) then return end
+    local mapping = setup_blueprint_mapping(event)
+    if not mapping then return end
 
-    local exported_entities = stack.get_blueprint_entities()
-    if not exported_entities then return end
-
-    local changed = normalize_exported_entity_names_for_active_mode(exported_entities)
-
-    local mapping = event.mapping:get()
-    if not mapping or type(mapping) ~= "table" then
-        if changed then
-            stack.set_blueprint_entities(exported_entities)
-        end
-        return
-    end
-
-    if rewrite_exported_cliff_entities(exported_entities, mapping) then
-        changed = true
-    end
-
+    local entities, changed = build_setup_blueprint_entities(mapping)
     if changed then
-        stack.set_blueprint_entities(exported_entities)
+        set_blueprint_entities_safe(blueprint, entities)
     end
 end
 
