@@ -14,6 +14,7 @@ Map generated cliffs will be minable but can not be blueprinted
 Runtime migration when startup setting is enabled/disabled  
 
 #### Notes:
+* Placeholder sprites are used in the blueprints.
 * Placing of mountains results are different than cliffs, but they can be rotated after placement.  
 * Proper cliffs consist of a minimum of two adjacent cliffs, a single cliff is incomplete.  
 * When using hotkeys to flip the cliff perspective, there is a "sweet spot" for the mouse cursor.  
